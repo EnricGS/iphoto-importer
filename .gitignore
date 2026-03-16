@@ -3,3 +3,6 @@ obj/
 .vs/
 *.user
 *.suo
+publish/
+installer_output/
+*.zip

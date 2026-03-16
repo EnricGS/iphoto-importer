@@ -153,10 +153,17 @@
 
                     <StackPanel>
                         <!-- Filtre de dates -->
-                        <TextBlock Text="Filtre de dates" FontSize="14" FontWeight="SemiBold"
+                        <TextBlock Text="Rang de dates" FontSize="14" FontWeight="SemiBold"
                                    Foreground="#555" Margin="0,0,0,8"/>
-                        <ComboBox ItemsSource="{Binding DateFilterOptions}"
-                                  SelectedItem="{Binding SelectedDateFilter}"
+                        <TextBlock Text="Des de:" Foreground="#777" FontSize="12" Margin="0,0,0,3"/>
+                        <ComboBox ItemsSource="{Binding MonthYearOptions}"
+                                  SelectedItem="{Binding SelectedFromMonth}"
+                                  DisplayMemberPath="Label"
+                                  FontSize="13" Padding="8,6"
+                                  Margin="0,0,0,8"/>
+                        <TextBlock Text="Fins a:" Foreground="#777" FontSize="12" Margin="0,0,0,3"/>
+                        <ComboBox ItemsSource="{Binding MonthYearOptions}"
+                                  SelectedItem="{Binding SelectedToMonth}"
                                   DisplayMemberPath="Label"
                                   FontSize="13" Padding="8,6"
                                   Margin="0,0,0,16"/>

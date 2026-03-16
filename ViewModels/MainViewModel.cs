@@ -15,12 +15,16 @@ using Microsoft.Win32;
 namespace iPhotoImporter.ViewModels;
 
 /// <summary>
-/// Opció de filtre de dates per l'escaneig.
+/// Representa un mes/any per al selector de rang de dates.
 /// </summary>
-public class DateFilterOption
+public class MonthYearOption
 {
     public required string Label { get; init; }
-    public DateTime? MinDate { get; init; }
+    public int Year { get; init; }
+    public int Month { get; init; }
+
+    public DateTime FirstDay => new(Year, Month, 1);
+    public DateTime LastDay => new(Year, Month, DateTime.DaysInMonth(Year, Month), 23, 59, 59);
 }
 
 /// <summary>
@@ -61,28 +65,37 @@ public partial class MainViewModel : ObservableObject
     private bool _hasError;
 
     [ObservableProperty]
-    private DateFilterOption _selectedDateFilter = null!;
+    private MonthYearOption _selectedFromMonth = null!;
+
+    [ObservableProperty]
+    private MonthYearOption _selectedToMonth = null!;
 
     public ObservableCollection<MediaDevice> Devices { get; } = [];
     public ObservableCollection<PhotoItem> Photos { get; } = [];
-    public List<DateFilterOption> DateFilterOptions { get; }
+    public List<MonthYearOption> MonthYearOptions { get; }
 
     /// <summary>Vista agrupada per mes/any sobre la col·lecció Photos.</summary>
     public ICollectionView PhotosView { get; }
 
+    private static readonly string[] CatMonths =
+        ["Gen", "Feb", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Des"];
+
     public MainViewModel()
     {
+        // Generar opcions: des de gen 2015 fins al mes actual
         var now = DateTime.Now;
-        DateFilterOptions =
-        [
-            new() { Label = "Últim mes", MinDate = now.AddMonths(-1) },
-            new() { Label = "Últims 3 mesos", MinDate = now.AddMonths(-3) },
-            new() { Label = "Últims 6 mesos", MinDate = now.AddMonths(-6) },
-            new() { Label = $"Any {now.Year}", MinDate = new DateTime(now.Year, 1, 1) },
-            new() { Label = $"Any {now.Year - 1}", MinDate = new DateTime(now.Year - 1, 1, 1) },
-            new() { Label = "Tot", MinDate = null },
-        ];
-        SelectedDateFilter = DateFilterOptions[0];
+        var options = new List<MonthYearOption>();
+        for (var y = now.Year; y >= 2015; y--)
+        {
+            var maxMonth = y == now.Year ? now.Month : 12;
+            for (var m = maxMonth; m >= 1; m--)
+                options.Add(new() { Label = $"{CatMonths[m - 1]} {y}", Year = y, Month = m });
+        }
+        MonthYearOptions = options;
+
+        // Per defecte: últim mes
+        SelectedFromMonth = MonthYearOptions.Count > 1 ? MonthYearOptions[1] : MonthYearOptions[0];
+        SelectedToMonth = MonthYearOptions[0];
 
         PhotosView = CollectionViewSource.GetDefaultView(Photos);
         PhotosView.GroupDescriptions.Add(
@@ -145,11 +158,8 @@ public partial class MainViewModel : ObservableObject
                 StatusMessage = $"Escanejant... {info.scanned} fitxers revisats, {info.found} coincideixen — {Path.GetFileName(info.folder)}";
             });
 
-            // Filtre: si l'opció "Any XXXX" anterior, limitar data màxima
-            var minDate = SelectedDateFilter.MinDate;
-            DateTime? maxDate = null;
-            if (minDate.HasValue && SelectedDateFilter.Label.StartsWith("Any ") && minDate.Value.Year < DateTime.Now.Year)
-                maxDate = new DateTime(minDate.Value.Year, 12, 31, 23, 59, 59);
+            var minDate = (DateTime?)SelectedFromMonth.FirstDay;
+            var maxDate = (DateTime?)SelectedToMonth.LastDay;
 
             var total = await _deviceService.GetPhotosAsync(SelectedDevice, photo =>
             {
