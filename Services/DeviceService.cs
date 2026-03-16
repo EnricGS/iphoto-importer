@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows.Media.Imaging;
 using iPhotoImporter.Models;
 using MediaDevices;
@@ -67,25 +69,30 @@ public class DeviceService : IDisposable
     }
 
     /// <summary>
-    /// Escaneja un dispositiu i retorna les fotos/vídeos ordenats per data.
+    /// Escaneja un dispositiu i reporta fotos/vídeos incrementalment via callback.
+    /// Retorna el total de fotos trobades.
     /// </summary>
-    public Task<List<PhotoItem>> GetPhotosAsync(MediaDevice device)
+    public async Task<int> GetPhotosAsync(MediaDevice device, Action<PhotoItem> onPhotoFound,
+        IProgress<(string folder, int scanned, int found)>? scanProgress = null,
+        DateTime? minDate = null, DateTime? maxDate = null)
     {
-        return RunOnSta(() =>
+        var photos = new List<PhotoItem>();
+        int[] scannedCount = [0];
+
+        await RunOnSta(() =>
         {
             EnsureConnected(device);
-
-            var photos = new List<PhotoItem>();
             var drives = device.GetDrives();
 
             foreach (var drive in drives)
             {
                 if (!drive.IsReady) continue;
-                ScanDirectory(device, drive.RootDirectory.FullName, photos);
+                ScanDirectory(device, drive.RootDirectory.FullName, photos, onPhotoFound,
+                    scanProgress, minDate, maxDate, scannedCount);
             }
-
-            return photos.OrderByDescending(p => p.DateTaken).ToList();
         });
+
+        return photos.Count;
     }
 
     /// <summary>
@@ -164,43 +171,168 @@ public class DeviceService : IDisposable
         });
     }
 
-    private void ScanDirectory(MediaDevice device, string path, List<PhotoItem> results)
+    private void ScanDirectory(MediaDevice device, string path, List<PhotoItem> results,
+        Action<PhotoItem>? onPhotoFound, IProgress<(string folder, int scanned, int found)>? scanProgress,
+        DateTime? minDate, DateTime? maxDate, int[] scannedCount)
     {
         try
         {
+            var folderName = Path.GetFileName(path);
+
+            // Extreure data de la carpeta (ex: "202602__" → febrer 2026)
+            var folderDate = ParseDateFromFolderName(folderName);
+
+            // Optimització: saltar carpetes senceres si el nom conté YYYYMM
+            // i el mes és anterior al filtre (ex: "202103__" → març 2021)
+            if (minDate.HasValue && CanSkipDirectoryByName(folderName, minDate.Value, maxDate))
+            {
+                scanProgress?.Report(($"[saltat] {folderName}", scannedCount[0], results.Count));
+                return;
+            }
+
+            scanProgress?.Report((folderName, scannedCount[0], results.Count));
+
             var files = device.EnumerateFiles(path);
             foreach (var filePath in files)
             {
                 var ext = Path.GetExtension(filePath).ToLowerInvariant();
                 if (!PhotoExtensions.Contains(ext)) continue;
 
+                scannedCount[0]++;
+
                 try
                 {
                     var info = device.GetFileInfo(filePath);
-                    results.Add(new PhotoItem
+                    var name = info.Name;
+
+                    // Prioritat de dates: nom fitxer > nom carpeta > MTP metadata
+                    // (les dates MTP de l'iPhone sovint són incorrectes)
+                    var date = ParseDateFromFileName(name)
+                              ?? folderDate
+                              ?? info.DateAuthored
+                              ?? info.LastWriteTime;
+
+                    // Filtrar per rang de dates (fotos sense data s'inclouen sempre)
+                    if (date.HasValue && minDate.HasValue && date.Value < minDate.Value)
+                        continue;
+                    if (date.HasValue && maxDate.HasValue && date.Value > maxDate.Value)
+                        continue;
+
+                    var photo = new PhotoItem
                     {
                         FullPath = filePath,
-                        FileName = info.Name,
-                        DateTaken = info.DateAuthored ?? info.LastWriteTime,
+                        FileName = name,
+                        DateTaken = date,
                         SizeBytes = (long)info.Length,
-                    });
+                    };
+                    results.Add(photo);
+                    onPhotoFound?.Invoke(photo);
                 }
                 catch
                 {
                     // Fitxer inaccessible, saltar
                 }
+
+                // Reportar progrés cada 100 fitxers escanejats
+                if (scannedCount[0] % 100 == 0)
+                    scanProgress?.Report((folderName, scannedCount[0], results.Count));
             }
 
             var dirs = device.EnumerateDirectories(path);
             foreach (var dir in dirs)
             {
-                ScanDirectory(device, dir, results);
+                ScanDirectory(device, dir, results, onPhotoFound, scanProgress, minDate, maxDate, scannedCount);
             }
         }
         catch
         {
             // Directori inaccessible, saltar
         }
+    }
+
+    /// <summary>
+    /// Extreu una data aproximada del nom d'una carpeta (ex: "202602__" → 1 febrer 2026).
+    /// </summary>
+    private static DateTime? ParseDateFromFolderName(string folderName)
+    {
+        var match = Regex.Match(folderName, @"(20\d{2})([-_]?)(\d{2})");
+        if (!match.Success) return null;
+
+        if (!int.TryParse(match.Groups[1].Value, out var year) ||
+            !int.TryParse(match.Groups[3].Value, out var month))
+            return null;
+
+        if (month < 1 || month > 12) return null;
+
+        return new DateTime(year, month, 1);
+    }
+
+    /// <summary>
+    /// Determina si es pot saltar un directori sencer basant-se en el nom.
+    /// Detecta patrons com "202103__", "2021_03", "202103" que indiquen any/mes.
+    /// </summary>
+    private static bool CanSkipDirectoryByName(string folderName, DateTime minDate, DateTime? maxDate)
+    {
+        // Patró YYYYMM al nom de la carpeta
+        var match = Regex.Match(folderName, @"(20\d{2})([-_]?)(\d{2})");
+        if (!match.Success) return false;
+
+        if (!int.TryParse(match.Groups[1].Value, out var year) ||
+            !int.TryParse(match.Groups[3].Value, out var month))
+            return false;
+
+        if (month < 1 || month > 12) return false;
+
+        // Últim dia del mes de la carpeta
+        var folderEnd = new DateTime(year, month, DateTime.DaysInMonth(year, month), 23, 59, 59);
+        // Primer dia del mes de la carpeta
+        var folderStart = new DateTime(year, month, 1);
+
+        // Saltar si tota la carpeta és anterior al filtre mínim
+        if (folderEnd < minDate)
+            return true;
+
+        // Saltar si tota la carpeta és posterior al filtre màxim
+        if (maxDate.HasValue && folderStart > maxDate.Value)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Intenta extreure la data d'una foto a partir del nom del fitxer.
+    /// Patrons suportats: IMG_20240315_123456, 20240315_123456, IMG_1234 (no date).
+    /// </summary>
+    private static DateTime? ParseDateFromFileName(string fileName)
+    {
+        // Patró: ...YYYYMMDD_HHMMSS... o ...YYYYMMDD-HHMMSS... o ...YYYY-MM-DD...
+        var match = Regex.Match(fileName, @"(\d{4})([-_]?)(\d{2})\2(\d{2})[-_](\d{2})(\d{2})(\d{2})");
+        if (match.Success &&
+            int.TryParse(match.Groups[1].Value, out var y) &&
+            int.TryParse(match.Groups[3].Value, out var m) &&
+            int.TryParse(match.Groups[4].Value, out var d) &&
+            int.TryParse(match.Groups[5].Value, out var hh) &&
+            int.TryParse(match.Groups[6].Value, out var mm) &&
+            int.TryParse(match.Groups[7].Value, out var ss) &&
+            y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31)
+        {
+            try { return new DateTime(y, m, d, hh, mm, ss); }
+            catch { /* data invàlida */ }
+        }
+
+        // Patró més simple: ...YYYYMMDD... (sense hora)
+        match = Regex.Match(fileName, @"(\d{4})([-_]?)(\d{2})\2(\d{2})");
+        if (match.Success &&
+            int.TryParse(match.Groups[1].Value, out y) &&
+            int.TryParse(match.Groups[3].Value, out m) &&
+            int.TryParse(match.Groups[4].Value, out d) &&
+            y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31)
+        {
+            try { return new DateTime(y, m, d); }
+            catch { /* data invàlida */ }
+        }
+
+        return null;
     }
 
     private static void EnsureConnected(MediaDevice device)

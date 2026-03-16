@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
@@ -12,6 +13,15 @@ using MediaDevices;
 using Microsoft.Win32;
 
 namespace iPhotoImporter.ViewModels;
+
+/// <summary>
+/// Opció de filtre de dates per l'escaneig.
+/// </summary>
+public class DateFilterOption
+{
+    public required string Label { get; init; }
+    public DateTime? MinDate { get; init; }
+}
 
 /// <summary>
 /// ViewModel principal de l'aplicació. Gestiona l'estat de la UI
@@ -50,14 +60,30 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasError;
 
+    [ObservableProperty]
+    private DateFilterOption _selectedDateFilter = null!;
+
     public ObservableCollection<MediaDevice> Devices { get; } = [];
     public ObservableCollection<PhotoItem> Photos { get; } = [];
+    public List<DateFilterOption> DateFilterOptions { get; }
 
     /// <summary>Vista agrupada per mes/any sobre la col·lecció Photos.</summary>
     public ICollectionView PhotosView { get; }
 
     public MainViewModel()
     {
+        var now = DateTime.Now;
+        DateFilterOptions =
+        [
+            new() { Label = "Últim mes", MinDate = now.AddMonths(-1) },
+            new() { Label = "Últims 3 mesos", MinDate = now.AddMonths(-3) },
+            new() { Label = "Últims 6 mesos", MinDate = now.AddMonths(-6) },
+            new() { Label = $"Any {now.Year}", MinDate = new DateTime(now.Year, 1, 1) },
+            new() { Label = $"Any {now.Year - 1}", MinDate = new DateTime(now.Year - 1, 1, 1) },
+            new() { Label = "Tot", MinDate = null },
+        ];
+        SelectedDateFilter = DateFilterOptions[0];
+
         PhotosView = CollectionViewSource.GetDefaultView(Photos);
         PhotosView.GroupDescriptions.Add(
             new PropertyGroupDescription(nameof(PhotoItem.DateTaken), new MonthYearConverter()));
@@ -114,19 +140,33 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            var photos = await _deviceService.GetPhotosAsync(SelectedDevice);
+            var scanProgress = new Progress<(string folder, int scanned, int found)>(info =>
+            {
+                StatusMessage = $"Escanejant... {info.scanned} fitxers revisats, {info.found} coincideixen — {Path.GetFileName(info.folder)}";
+            });
 
-            if (photos.Count == 0)
+            // Filtre: si l'opció "Any XXXX" anterior, limitar data màxima
+            var minDate = SelectedDateFilter.MinDate;
+            DateTime? maxDate = null;
+            if (minDate.HasValue && SelectedDateFilter.Label.StartsWith("Any ") && minDate.Value.Year < DateTime.Now.Year)
+                maxDate = new DateTime(minDate.Value.Year, 12, 31, 23, 59, 59);
+
+            var total = await _deviceService.GetPhotosAsync(SelectedDevice, photo =>
+            {
+                photo.IsSelected = true;
+                photo.PropertyChanged += OnPhotoSelectionChanged;
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    Photos.Add(photo);
+                    if (Photos.Count % 50 == 0)
+                        UpdateSelectionStats();
+                });
+            }, scanProgress, minDate, maxDate);
+
+            if (total == 0)
             {
                 StatusMessage = "No s'han trobat fotos ni vídeos al dispositiu.";
                 return;
-            }
-
-            foreach (var p in photos)
-            {
-                p.IsSelected = true;
-                p.PropertyChanged += OnPhotoSelectionChanged;
-                Photos.Add(p);
             }
 
             UpdateSelectionStats();

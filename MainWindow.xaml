@@ -152,6 +152,15 @@
                     </StackPanel>
 
                     <StackPanel>
+                        <!-- Filtre de dates -->
+                        <TextBlock Text="Filtre de dates" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="#555" Margin="0,0,0,8"/>
+                        <ComboBox ItemsSource="{Binding DateFilterOptions}"
+                                  SelectedItem="{Binding SelectedDateFilter}"
+                                  DisplayMemberPath="Label"
+                                  FontSize="13" Padding="8,6"
+                                  Margin="0,0,0,16"/>
+
                         <!-- Resum selecció -->
                         <TextBlock Text="Selecció" FontSize="14" FontWeight="SemiBold"
                                    Foreground="#555" Margin="0,0,0,12"/>
