@@ -2,23 +2,47 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:iPhotoImporter.ViewModels"
-        Title="iPhoto Importer"
-        Height="700" Width="1050"
-        MinHeight="500" MinWidth="750"
+        xmlns:conv="clr-namespace:iPhotoImporter.Converters"
+        Title="iPhoto Viewer"
+        Height="800" Width="1200"
+        MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
-        Background="#F5F5F5"
-        FontFamily="Segoe UI">
+        WindowState="Maximized"
+        Background="#1E1E1E"
+        FontFamily="Segoe UI"
+        KeyDown="Window_KeyDown">
 
     <Window.Resources>
-        <!-- Converter per mostrar mida en format llegible -->
-        <vm:MonthYearConverter x:Key="MonthYearConverter"/>
+        <!-- Converters -->
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InvBoolToVis"/>
+        <conv:ZeroToVisibilityConverter x:Key="ZeroToVis"/>
+        <conv:PositiveToVisibilityConverter x:Key="PosToVis"/>
+        <conv:FileSizeConverter x:Key="FileSizeConv"/>
+        <conv:NullToBoolConverter x:Key="NullToBool"/>
+
+        <!-- Colors principals -->
+        <SolidColorBrush x:Key="BgDark" Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="BgMedium" Color="#2D2D2D"/>
+        <SolidColorBrush x:Key="BgLight" Color="#3C3C3C"/>
+        <SolidColorBrush x:Key="BgHover" Color="#4A4A4A"/>
+        <SolidColorBrush x:Key="Accent" Color="#2979FF"/>
+        <SolidColorBrush x:Key="AccentLight" Color="#448AFF"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#ECECEC"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#999999"/>
+        <SolidColorBrush x:Key="TextDim" Color="#666666"/>
+        <SolidColorBrush x:Key="BorderColor" Color="#404040"/>
+        <SolidColorBrush x:Key="SelectedBg" Color="#1A2979FF"/>
+        <SolidColorBrush x:Key="HighlightBorder" Color="#2979FF"/>
+        <SolidColorBrush x:Key="DangerColor" Color="#E53935"/>
 
         <!-- Estil base dels botons -->
         <Style x:Key="BtnBase" TargetType="Button">
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="12,6"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -41,318 +65,519 @@
             </Setter>
         </Style>
 
-        <Style x:Key="BtnSecondary" TargetType="Button" BasedOn="{StaticResource BtnBase}">
-            <Setter Property="Background" Value="#E0E0E0"/>
-            <Setter Property="Foreground" Value="#333"/>
+        <Style x:Key="BtnToolbar" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="{StaticResource BgLight}"/>
+            <Setter Property="Padding" Value="10,6"/>
         </Style>
 
         <Style x:Key="BtnPrimary" TargetType="Button" BasedOn="{StaticResource BtnBase}">
-            <Setter Property="Background" Value="#2979FF"/>
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <Style x:Key="BtnDanger" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="{StaticResource DangerColor}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- Estil Slider tema fosc -->
+        <Style x:Key="DarkSlider" TargetType="Slider">
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
         </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>  <!-- Barra superior -->
+            <RowDefinition Height="*"/>      <!-- Contingut principal -->
+            <RowDefinition Height="Auto"/>  <!-- Barra d'accions -->
+            <RowDefinition Height="Auto"/>  <!-- Barra d'estat -->
         </Grid.RowDefinitions>
 
         <!-- ==================== BARRA SUPERIOR ==================== -->
-        <Border Grid.Row="0" Background="White" Padding="16,12"
-                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Background="{StaticResource BgMedium}" Padding="12,8"
+                BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1">
             <DockPanel>
                 <!-- Títol -->
-                <TextBlock DockPanel.Dock="Left" Text="iPhoto Importer"
-                           FontSize="18" FontWeight="SemiBold" Foreground="#333"
-                           VerticalAlignment="Center" Margin="0,0,24,0"/>
+                <TextBlock DockPanel.Dock="Left" Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
+                           FontSize="18" Foreground="{StaticResource Accent}"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock DockPanel.Dock="Left" Text="iPhoto Viewer"
+                           FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"
+                           VerticalAlignment="Center" Margin="0,0,20,0"/>
 
-                <!-- Indicador de connexió -->
-                <Ellipse DockPanel.Dock="Left" Width="10" Height="10"
-                         VerticalAlignment="Center" Margin="0,0,8,0">
-                    <Ellipse.Style>
-                        <Style TargetType="Ellipse">
-                            <Setter Property="Fill" Value="#E53935"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding SelectedDevice, Converter={x:Static vm:NullToBoolConverter.Instance}}" Value="True">
-                                    <Setter Property="Fill" Value="#43A047"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Ellipse.Style>
-                </Ellipse>
+                <!-- Botons dreta -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <!-- Botó importar -->
+                    <Button Style="{StaticResource BtnToolbar}"
+                            Command="{Binding ToggleImportPanelCommand}"
+                            Margin="4,0" ToolTip="Importar des de dispositiu MTP">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8B5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Importar" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
 
-                <!-- Botó actualitzar -->
-                <Button DockPanel.Dock="Right"
-                        Style="{StaticResource BtnSecondary}"
-                        Command="{Binding RefreshDevicesCommand}"
-                        Margin="8,0,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="14"
-                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Actualitzar" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+                <!-- Carpeta actual i botó obrir -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource BtnPrimary}"
+                            Command="{Binding OpenFolderCommand}"
+                            Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xED25;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Obrir carpeta" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
 
-                <!-- Botó carregar fotos -->
-                <Button DockPanel.Dock="Right"
-                        Style="{StaticResource BtnSecondary}"
-                        Command="{Binding LoadPhotosCommand}">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" FontSize="14"
-                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock Text="Carregar fotos" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-
-                <!-- ComboBox dispositius -->
-                <ComboBox ItemsSource="{Binding Devices}"
-                          SelectedItem="{Binding SelectedDevice}"
-                          DisplayMemberPath="FriendlyName"
-                          VerticalAlignment="Center"
-                          FontSize="13" Padding="8,6"
-                          MinWidth="200" Margin="0,0,12,0">
-                    <ComboBox.Style>
-                        <Style TargetType="ComboBox">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Devices.Count}" Value="0">
-                                    <Setter Property="IsEnabled" Value="False"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </ComboBox.Style>
-                </ComboBox>
+                    <TextBlock Text="{Binding CurrentFolderPath}"
+                               Foreground="{StaticResource TextSecondary}"
+                               FontSize="12" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxWidth="500"/>
+                </StackPanel>
             </DockPanel>
         </Border>
 
         <!-- ==================== CONTINGUT PRINCIPAL ==================== -->
         <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="250"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+            <!-- Capa base: Graella de miniatures -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>  <!-- Controls de graella -->
+                    <RowDefinition Height="*"/>      <!-- Graella -->
+                </Grid.RowDefinitions>
 
-            <!-- ========== PANELL ESQUERRE ========== -->
-            <Border Grid.Column="0" Background="White" Padding="16"
-                    BorderBrush="#E0E0E0" BorderThickness="0,0,1,0">
-                <DockPanel>
-                    <!-- Barra de progrés i botó principal a baix -->
-                    <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
-                        <ProgressBar Value="{Binding CopyProgress}" Minimum="0" Maximum="100"
-                                     Height="6" Foreground="#2979FF" Background="#E0E0E0"
-                                     BorderThickness="0" Margin="0,0,0,8"
-                                     Visibility="{Binding IsCopying, Converter={x:Static vm:BoolToVisibilityConverter.Instance}}"/>
-                        <Button Content="Copiar seleccionades"
-                                Style="{StaticResource BtnPrimary}"
-                                Command="{Binding CopySelectedCommand}"
-                                Height="42"/>
-                    </StackPanel>
+                <!-- Controls de graella (slider, comptadors) -->
+                <Border Grid.Row="0" Background="{StaticResource BgMedium}" Padding="12,6"
+                        BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1"
+                        Visibility="{Binding Photos.Count, Converter={StaticResource PosToVis}}">
+                    <DockPanel>
+                        <!-- Comptador -->
+                        <TextBlock DockPanel.Dock="Left"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   FontSize="12" VerticalAlignment="Center">
+                            <Run Text="{Binding Photos.Count, Mode=OneWay}"/>
+                            <Run Text="imatges"/>
+                        </TextBlock>
 
-                    <StackPanel>
-                        <!-- Filtre de dates -->
-                        <TextBlock Text="Rang de dates" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#555" Margin="0,0,0,8"/>
-                        <TextBlock Text="Des de:" Foreground="#777" FontSize="12" Margin="0,0,0,3"/>
-                        <ComboBox ItemsSource="{Binding MonthYearOptions}"
-                                  SelectedItem="{Binding SelectedFromMonth}"
-                                  DisplayMemberPath="Label"
-                                  FontSize="13" Padding="8,6"
-                                  Margin="0,0,0,8"/>
-                        <TextBlock Text="Fins a:" Foreground="#777" FontSize="12" Margin="0,0,0,3"/>
-                        <ComboBox ItemsSource="{Binding MonthYearOptions}"
-                                  SelectedItem="{Binding SelectedToMonth}"
-                                  DisplayMemberPath="Label"
-                                  FontSize="13" Padding="8,6"
-                                  Margin="0,0,0,16"/>
+                        <!-- Slider de mida -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="S" Foreground="{StaticResource TextDim}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <Slider Value="{Binding ThumbnailSize}" Minimum="80" Maximum="400"
+                                    Width="120" VerticalAlignment="Center"
+                                    Style="{StaticResource DarkSlider}"/>
+                            <TextBlock Text="XL" Foreground="{StaticResource TextDim}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        </StackPanel>
 
-                        <!-- Resum selecció -->
-                        <TextBlock Text="Selecció" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="#555" Margin="0,0,0,12"/>
+                        <!-- Selecció ràpida -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,16,0">
+                            <Button Content="Sel. tot" Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding SelectAllCommand}" Margin="0,0,4,0"
+                                    FontSize="11" Padding="8,4"/>
+                            <Button Content="Cap" Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding DeselectAllCommand}"
+                                    FontSize="11" Padding="8,4"/>
+                        </StackPanel>
 
-                        <Border Background="#F8F9FA" CornerRadius="6" Padding="14,12" Margin="0,0,0,8">
-                            <StackPanel>
-                                <DockPanel Margin="0,0,0,6">
-                                    <TextBlock Text="Fotos:" Foreground="#777"/>
-                                    <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                               FontWeight="SemiBold" Foreground="#333">
-                                        <TextBlock.Text>
-                                            <MultiBinding StringFormat="{}{0} / {1}">
-                                                <Binding Path="SelectedPhotosCount"/>
-                                                <Binding Path="Photos.Count"/>
-                                            </MultiBinding>
-                                        </TextBlock.Text>
-                                    </TextBlock>
-                                </DockPanel>
-                                <DockPanel>
-                                    <TextBlock Text="Mida:" Foreground="#777"/>
-                                    <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                               FontWeight="SemiBold" Foreground="#333"
-                                               Text="{Binding TotalSelectedSizeMB, StringFormat={}{0:N1} MB}"/>
-                                </DockPanel>
-                            </StackPanel>
-                        </Border>
+                        <Border/>
+                    </DockPanel>
+                </Border>
 
-                        <!-- Botons selecció -->
-                        <Button Content="Seleccionar totes"
-                                Style="{StaticResource BtnSecondary}"
-                                Command="{Binding SelectAllCommand}"
-                                HorizontalAlignment="Stretch" Margin="0,4"/>
-                        <Button Content="Desseleccionar totes"
-                                Style="{StaticResource BtnSecondary}"
-                                Command="{Binding DeselectAllCommand}"
-                                HorizontalAlignment="Stretch" Margin="0,4"/>
-                    </StackPanel>
-                </DockPanel>
-            </Border>
+                <!-- Graella de miniatures amb virtualització -->
+                <ScrollViewer Grid.Row="1" x:Name="ThumbnailScrollViewer"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Background="{StaticResource BgDark}">
+                    <ItemsControl ItemsSource="{Binding Photos}"
+                                  x:Name="PhotoGrid"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  VirtualizingPanel.ScrollUnit="Pixel">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
 
-            <!-- ========== ZONA PRINCIPAL: GRAELLA DE FOTOS ========== -->
-            <ListBox Grid.Column="1"
-                     ItemsSource="{Binding PhotosView}"
-                     SelectionMode="Single"
-                     Background="Transparent"
-                     BorderThickness="0"
-                     Padding="8"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     VirtualizingPanel.IsVirtualizing="True"
-                     VirtualizingPanel.VirtualizationMode="Recycling">
-
-                <!-- Layout: WrapPanel dins ScrollViewer -->
-                <ListBox.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <WrapPanel/>
-                    </ItemsPanelTemplate>
-                </ListBox.ItemsPanel>
-
-                <!-- Capçalera de grup (mes/any) -->
-                <ListBox.GroupStyle>
-                    <GroupStyle>
-                        <GroupStyle.HeaderTemplate>
+                        <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
-                                           Foreground="#444" Margin="8,16,8,6"/>
-                            </DataTemplate>
-                        </GroupStyle.HeaderTemplate>
-                    </GroupStyle>
-                </ListBox.GroupStyle>
-
-                <!-- Estil per eliminar la selecció visual del ListBox -->
-                <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
-                        <Setter Property="Padding" Value="0"/>
-                        <Setter Property="Margin" Value="4"/>
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="ListBoxItem">
-                                    <ContentPresenter/>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </ListBox.ItemContainerStyle>
-
-                <!-- Template de cada foto -->
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <Border Width="158" Background="White" CornerRadius="6"
-                                BorderBrush="#E0E0E0" BorderThickness="1"
-                                Padding="4" Margin="0"
-                                Cursor="Hand">
-                            <Border.InputBindings>
-                                <MouseBinding MouseAction="LeftClick"
-                                              Command="{x:Static vm:ToggleSelectionCommand.Instance}"
-                                              CommandParameter="{Binding}"/>
-                            </Border.InputBindings>
-                            <StackPanel>
-                                <!-- Miniatura amb checkbox superposat -->
-                                <Grid Height="150" Width="150">
-                                    <!-- Miniatura o placeholder -->
-                                    <Border Background="#F0F0F0" CornerRadius="4">
+                                <Border x:Name="ThumbBorder"
+                                        Width="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        Height="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        Margin="2" CornerRadius="4" ClipToBounds="True"
+                                        Background="{StaticResource BgLight}"
+                                        BorderThickness="2" BorderBrush="Transparent"
+                                        Cursor="Hand"
+                                        MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown">
+                                    <Grid>
+                                        <!-- Miniatura -->
                                         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
-                                               RenderOptions.BitmapScalingMode="HighQuality">
-                                            <Image.Clip>
-                                                <RectangleGeometry Rect="0,0,150,150" RadiusX="4" RadiusY="4"/>
-                                            </Image.Clip>
-                                        </Image>
-                                    </Border>
-                                    <!-- Icona placeholder quan no hi ha miniatura -->
-                                    <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
-                                               FontSize="32" Foreground="#CCC"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
-                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                    <!-- Checkbox -->
-                                    <CheckBox IsChecked="{Binding IsSelected}"
-                                              HorizontalAlignment="Left" VerticalAlignment="Top"
-                                              Margin="6,6,0,0">
-                                        <CheckBox.LayoutTransform>
-                                            <ScaleTransform ScaleX="1.2" ScaleY="1.2"/>
-                                        </CheckBox.LayoutTransform>
-                                    </CheckBox>
-                                </Grid>
-                                <!-- Info del fitxer -->
-                                <TextBlock Text="{Binding FileName}" FontSize="11"
-                                           Foreground="#555" Margin="2,4,2,0"
-                                           TextTrimming="CharacterEllipsis" MaxWidth="150"/>
-                                <TextBlock Text="{Binding DateTaken, StringFormat='{}{0:dd/MM/yyyy HH:mm}'}"
-                                           FontSize="10" Foreground="#999" Margin="2,1,2,2"/>
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
 
-            <!-- Missatge quan no hi ha fotos -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center"
-                        Visibility="{Binding Photos.Count, Converter={x:Static vm:ZeroToVisibilityConverter.Instance}}">
-                <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
-                           FontSize="48" Foreground="#CCC" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                <TextBlock Text="Prem &quot;Actualitzar&quot; per detectar dispositius"
-                           FontSize="14" Foreground="#999" HorizontalAlignment="Center"/>
-                <TextBlock Text="i després &quot;Carregar fotos&quot; per veure'les aquí."
-                           FontSize="13" Foreground="#BBB" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-            </StackPanel>
+                                        <!-- Placeholder si no hi ha miniatura -->
+                                        <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="28" Foreground="#555"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
 
-            <!-- Spinner de càrrega -->
-            <Border Grid.Column="1" Background="#80FFFFFF"
-                    Visibility="{Binding IsLoading, Converter={x:Static vm:BoolToVisibilityConverter.Instance}}">
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <ProgressBar IsIndeterminate="True" Width="180" Height="4"
-                                 Foreground="#2979FF" Background="#E0E0E0" BorderThickness="0"/>
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="#555"
-                               FontSize="13" Margin="0,10,0,0" HorizontalAlignment="Center"/>
+                                        <!-- Indicador de vídeo -->
+                                        <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                Background="#80000000" CornerRadius="20" Padding="8"
+                                                Visibility="{Binding IsVideo, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets"
+                                                       FontSize="20" Foreground="White"/>
+                                        </Border>
+
+                                        <!-- Checkbox de selecció -->
+                                        <CheckBox IsChecked="{Binding IsSelected}"
+                                                  HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                  Margin="4,4,0,0" Opacity="0.9">
+                                            <CheckBox.LayoutTransform>
+                                                <ScaleTransform ScaleX="1.1" ScaleY="1.1"/>
+                                            </CheckBox.LayoutTransform>
+                                        </CheckBox>
+
+                                        <!-- Nom del fitxer a baix -->
+                                        <Border VerticalAlignment="Bottom" Background="#C0000000"
+                                                Padding="4,2">
+                                            <TextBlock Text="{Binding FileName}" FontSize="10"
+                                                       Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Triggers per ressaltat i selecció -->
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter TargetName="ThumbBorder" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                        <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.85"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                                        <Setter TargetName="ThumbBorder" Property="BorderBrush" Value="#FFD700"/>
+                                        <Setter TargetName="ThumbBorder" Property="BorderThickness" Value="3"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Missatge quan no hi ha fotos -->
+                <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding Photos.Count, Converter={StaticResource ZeroToVis}}">
+                    <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
+                               FontSize="56" Foreground="#444" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                    <TextBlock Text="Obre una carpeta per veure les imatges"
+                               FontSize="16" Foreground="{StaticResource TextSecondary}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="o importa fotos des d'un dispositiu MTP"
+                               FontSize="13" Foreground="{StaticResource TextDim}"
+                               HorizontalAlignment="Center" Margin="0,6,0,16"/>
+                    <Button Content="Obrir carpeta" Style="{StaticResource BtnPrimary}"
+                            Command="{Binding OpenFolderCommand}"
+                            FontSize="14" Padding="20,10"
+                            HorizontalAlignment="Center"/>
                 </StackPanel>
+
+                <!-- Spinner de càrrega -->
+                <Border Grid.Row="1" Background="#C01E1E1E"
+                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <ProgressBar IsIndeterminate="True" Width="200" Height="4"
+                                     Foreground="{StaticResource Accent}" Background="{StaticResource BgLight}"
+                                     BorderThickness="0"/>
+                        <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondary}"
+                                   FontSize="13" Margin="0,12,0,0" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- ==================== VISOR D'IMATGES (overlay) ==================== -->
+            <Grid x:Name="ViewerOverlay"
+                  Visibility="{Binding IsViewerOpen, Converter={StaticResource BoolToVis}}"
+                  Background="#F0000000">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Barra superior del visor -->
+                <Border Grid.Row="0" Background="#A0000000" Padding="12,8">
+                    <DockPanel>
+                        <!-- Botó tancar -->
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
+                                Command="{Binding CloseViewerCommand}" ToolTip="Tancar (Esc)"
+                                Margin="4,0,0,0">
+                            <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
+                        </Button>
+
+                        <!-- Botons de zoom -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,8,0">
+                            <Button Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ViewerZoomOutCommand}" ToolTip="Reduir (-)"
+                                    Margin="2,0">
+                                <TextBlock Text="&#xE738;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                            </Button>
+                            <TextBlock Foreground="{StaticResource TextSecondary}"
+                                       VerticalAlignment="Center" FontSize="12" Margin="4,0"
+                                       Text="{Binding ViewerZoom, StringFormat={}{0:P0}}"/>
+                            <Button Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ViewerZoomInCommand}" ToolTip="Ampliar (+)"
+                                    Margin="2,0">
+                                <TextBlock Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                            </Button>
+                            <Button Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ViewerZoomResetCommand}" ToolTip="Reset zoom (0)"
+                                    Content="1:1" FontSize="11" Margin="2,0"/>
+                        </StackPanel>
+
+                        <!-- Info imatge -->
+                        <TextBlock Text="{Binding ViewerInfoText}"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   FontSize="12" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
+
+                <!-- Imatge principal -->
+                <Grid Grid.Row="1" ClipToBounds="True"
+                      MouseWheel="Viewer_MouseWheel"
+                      MouseLeftButtonDown="Viewer_MouseLeftButtonDown"
+                      MouseLeftButtonUp="Viewer_MouseLeftButtonUp"
+                      MouseMove="Viewer_MouseMove"
+                      Background="Transparent">
+
+                    <!-- Navegació esquerra -->
+                    <Button HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Style="{StaticResource BtnToolbar}"
+                            Command="{Binding ViewerPreviousCommand}"
+                            Width="50" Height="80" Margin="12,0" Opacity="0.6"
+                            ToolTip="Anterior (←)">
+                        <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="22"/>
+                    </Button>
+
+                    <!-- Imatge amb zoom i pan -->
+                    <Image x:Name="ViewerImageControl"
+                           Source="{Binding ViewerImage}"
+                           Stretch="Uniform"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           RenderTransformOrigin="0.5,0.5">
+                        <Image.RenderTransform>
+                            <TransformGroup>
+                                <ScaleTransform ScaleX="{Binding ViewerZoom}" ScaleY="{Binding ViewerZoom}"/>
+                                <TranslateTransform X="{Binding ViewerOffsetX}" Y="{Binding ViewerOffsetY}"/>
+                            </TransformGroup>
+                        </Image.RenderTransform>
+                    </Image>
+
+                    <!-- Navegació dreta -->
+                    <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Style="{StaticResource BtnToolbar}"
+                            Command="{Binding ViewerNextCommand}"
+                            Width="50" Height="80" Margin="12,0" Opacity="0.6"
+                            ToolTip="Següent (→)">
+                        <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="22"/>
+                    </Button>
+                </Grid>
+
+                <!-- Barra inferior del visor -->
+                <Border Grid.Row="2" Background="#A0000000" Padding="12,6">
+                    <DockPanel>
+                        <TextBlock Foreground="{StaticResource TextSecondary}" FontSize="12"
+                                   VerticalAlignment="Center">
+                            <Run Text="Utilitza ← → per navegar, +/- per zoom, Esc per tancar"/>
+                        </TextBlock>
+                    </DockPanel>
+                </Border>
+            </Grid>
+
+            <!-- ==================== PANELL D'IMPORTACIÓ (overlay lateral) ==================== -->
+            <Border x:Name="ImportPanel"
+                    HorizontalAlignment="Right" Width="350"
+                    Background="{StaticResource BgMedium}"
+                    BorderBrush="{StaticResource BorderColor}" BorderThickness="1,0,0,0"
+                    Visibility="{Binding IsImportPanelOpen, Converter={StaticResource BoolToVis}}">
+                <DockPanel>
+                    <!-- Capçalera -->
+                    <Border DockPanel.Dock="Top" Background="{StaticResource BgLight}" Padding="12,10">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ToggleImportPanelCommand}"
+                                    Padding="6,4">
+                                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                            </Button>
+                            <TextBlock Text="Importació MTP" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Contingut -->
+                    <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" Padding="12">
+                        <StackPanel>
+                            <!-- Detectar dispositius -->
+                            <TextBlock Text="Dispositiu" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextSecondary}" Margin="0,4,0,8"/>
+
+                            <Button Content="Detectar dispositius" Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding DetectDevicesCommand}"
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                            <ComboBox ItemsSource="{Binding Devices}"
+                                      SelectedItem="{Binding SelectedDevice}"
+                                      DisplayMemberPath="FriendlyName"
+                                      FontSize="12" Padding="8,6"
+                                      Margin="0,0,0,16"/>
+
+                            <!-- Botó importar -->
+                            <Button Style="{StaticResource BtnPrimary}"
+                                    Command="{Binding ImportFromDeviceCommand}"
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,8"
+                                    Padding="12,10">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE8B5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="Importar fotos" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Progrés d'importació -->
+                            <ProgressBar Value="{Binding ImportProgress}" Minimum="0" Maximum="100"
+                                         Height="4" Foreground="{StaticResource Accent}"
+                                         Background="{StaticResource BgLight}" BorderThickness="0"
+                                         Margin="0,8,0,4"
+                                         Visibility="{Binding IsImporting, Converter={StaticResource BoolToVis}}"/>
+
+                            <TextBlock Text="{Binding ImportStatusMessage}"
+                                       Foreground="{StaticResource TextSecondary}"
+                                       FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+
+                            <!-- Instruccions -->
+                            <Border Background="{StaticResource BgLight}" CornerRadius="4"
+                                    Padding="10,8" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Instruccions:" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimary}" FontSize="11"
+                                               Margin="0,0,0,6"/>
+                                    <TextBlock Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                               TextWrapping="Wrap">
+                                        1. Connecta l'iPhone via USB.
+                                        <LineBreak/>
+                                        2. Desbloqueja i prem "Confiar".
+                                        <LineBreak/>
+                                        3. Prem "Detectar dispositius".
+                                        <LineBreak/>
+                                        4. Prem "Importar fotos".
+                                        <LineBreak/>
+                                        5. Selecciona la carpeta de destí.
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
         </Grid>
 
+        <!-- ==================== BARRA D'ACCIONS (quan hi ha selecció) ==================== -->
+        <Border Grid.Row="2" Background="{StaticResource BgMedium}" Padding="12,8"
+                BorderBrush="{StaticResource Accent}" BorderThickness="0,2,0,0"
+                Visibility="{Binding ShowActionBar, Converter={StaticResource BoolToVis}}">
+            <DockPanel>
+                <!-- Info selecció -->
+                <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextPrimary}" FontSize="12" Margin="0,0,16,0">
+                    <Run Text="{Binding SelectedPhotosCount, Mode=OneWay}" FontWeight="SemiBold"/>
+                    <Run Text="seleccionat(s)"/>
+                    <Run Text=" — "/>
+                    <Run Text="{Binding TotalSelectedSizeMB, Mode=OneWay, StringFormat={}{0:N1}}"/>
+                    <Run Text="MB"/>
+                </TextBlock>
+
+                <!-- Botons d'acció -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Style="{StaticResource BtnToolbar}"
+                            Command="{Binding CopySelectedCommand}"
+                            Margin="4,0" ToolTip="Copiar a una altra carpeta">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Copiar" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Style="{StaticResource BtnToolbar}"
+                            Command="{Binding MoveSelectedCommand}"
+                            Margin="4,0" ToolTip="Moure a una altra carpeta">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8DE;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Moure" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Style="{StaticResource BtnDanger}"
+                            Command="{Binding DeleteSelectedCommand}"
+                            Margin="4,0" ToolTip="Eliminar seleccionats">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Eliminar" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Border Width="1" Background="{StaticResource BorderColor}" Margin="8,2"/>
+
+                    <Button Content="Desseleccionar" Style="{StaticResource BtnToolbar}"
+                            Command="{Binding DeselectAllCommand}"
+                            Margin="4,0" FontSize="11"/>
+                </StackPanel>
+
+                <Border/>
+            </DockPanel>
+        </Border>
+
         <!-- ==================== BARRA D'ESTAT ==================== -->
-        <Border Grid.Row="2" Background="White" Padding="16,8"
-                BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
-            <TextBlock Text="{Binding StatusMessage}" FontSize="12">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Foreground" Value="#777"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding HasError}" Value="True">
-                                <Setter Property="Foreground" Value="#E53935"/>
-                                <Setter Property="FontWeight" Value="SemiBold"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBlock.Style>
-            </TextBlock>
+        <Border Grid.Row="3" Background="{StaticResource BgMedium}" Padding="12,5"
+                BorderBrush="{StaticResource BorderColor}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <!-- Progrés de còpia -->
+                <ProgressBar DockPanel.Dock="Right" Value="{Binding CopyProgress}"
+                             Minimum="0" Maximum="100" Width="120" Height="4"
+                             Foreground="{StaticResource Accent}" Background="{StaticResource BgLight}"
+                             BorderThickness="0" VerticalAlignment="Center" Margin="8,0,0,0"
+                             Visibility="{Binding IsCopying, Converter={StaticResource BoolToVis}}"/>
+
+                <TextBlock Text="{Binding StatusMessage}" FontSize="11"
+                           VerticalAlignment="Center">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasError}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource DangerColor}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </DockPanel>
         </Border>
     </Grid>
 </Window>
