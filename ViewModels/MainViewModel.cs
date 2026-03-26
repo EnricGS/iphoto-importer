@@ -107,6 +107,15 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isImporting;
 
+    // === Carpeta de destí ===
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDestinationFolder))]
+    private string? _destinationFolder;
+
+    /// <summary>Indica si s'ha definit una carpeta de destí.</summary>
+    public bool HasDestinationFolder => !string.IsNullOrEmpty(DestinationFolder);
+
     // === Mode de visualització ===
 
     [ObservableProperty]
@@ -563,23 +572,70 @@ public partial class MainViewModel : ObservableObject
     // === Accions de gestió (Phase 4) ===
 
     [RelayCommand]
-    private async Task CopySelectedAsync()
+    private void SetDestinationFolder()
     {
-        if (SelectedPhotos.Count == 0) return;
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Selecciona la carpeta de destí per defecte"
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            DestinationFolder = dialog.FolderName;
+            StatusMessage = $"Carpeta de destí: {DestinationFolder}";
+        }
+    }
+
+    [RelayCommand]
+    private void ClearDestinationFolder()
+    {
+        DestinationFolder = null;
+        StatusMessage = "Carpeta de destí eliminada.";
+    }
+
+    /// <summary>
+    /// Resol la carpeta de destí: si ja n'hi ha una definida, la retorna directament.
+    /// Si no, obre el selector de carpetes. Retorna null si l'usuari cancel·la.
+    /// </summary>
+    private string? ResolveDestinationFolder()
+    {
+        if (!string.IsNullOrEmpty(DestinationFolder))
+            return DestinationFolder;
 
         var dialog = new OpenFolderDialog
         {
             Title = "Selecciona la carpeta de destí per copiar"
         };
+        return dialog.ShowDialog() == true ? dialog.FolderName : null;
+    }
 
-        if (dialog.ShowDialog() != true) return;
+    [RelayCommand]
+    private async Task CopySelectedAsync()
+    {
+        if (SelectedPhotos.Count == 0) return;
 
+        var dest = ResolveDestinationFolder();
+        if (dest == null) return;
+
+        await CopyFilesAsync(SelectedPhotos.ToList(), dest);
+    }
+
+    [RelayCommand]
+    private async Task CopyCurrentPhotoAsync()
+    {
+        if (ViewerCurrentItem == null) return;
+
+        var dest = ResolveDestinationFolder();
+        if (dest == null) return;
+
+        await CopyFilesAsync([ViewerCurrentItem], dest);
+    }
+
+    private async Task CopyFilesAsync(List<PhotoItem> files, string destination)
+    {
         IsLoading = true;
         IsCopying = true;
         HasError = false;
         CopyProgress = 0;
-
-        var filesToCopy = SelectedPhotos.ToList();
 
         var progress = new Progress<(int current, int total, string fileName)>(report =>
         {
@@ -589,15 +645,9 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            var copied = await _fileService.CopyFilesAsync(filesToCopy, dialog.FolderName, progress);
+            var copied = await _fileService.CopyFilesAsync(files, destination, progress);
             CopyProgress = 100;
-            StatusMessage = $"{copied} fitxer(s) copiat(s) correctament a {dialog.FolderName}";
-
-            MessageBox.Show(
-                $"S'han copiat {copied} fitxer(s) correctament.\n\nDestí: {dialog.FolderName}",
-                "Còpia completada",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            StatusMessage = $"{copied} fitxer(s) copiat(s) a {destination}";
         }
         catch (Exception ex)
         {

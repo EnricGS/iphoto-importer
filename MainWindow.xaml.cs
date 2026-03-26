@@ -136,6 +136,10 @@ public partial class MainWindow : Window
                     _viewModel.ViewerFitToScreenCommand.Execute(null);
                     e.Handled = true;
                     break;
+                case Key.C when Keyboard.Modifiers == ModifierKeys.None:
+                    _viewModel.CopyCurrentPhotoCommand.Execute(null);
+                    e.Handled = true;
+                    break;
             }
 
             // En mode split, no bloquejar les dreceres de graella (Ctrl+A, etc.)

@@ -144,6 +144,32 @@
                         </StackPanel>
                     </Button>
 
+                    <!-- Botó carpeta destí -->
+                    <Button Style="{StaticResource BtnToolbar}"
+                            Command="{Binding SetDestinationFolderCommand}"
+                            Margin="0,0,4,0" ToolTip="Definir carpeta de destí per còpies">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8DE;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Destí" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Indicador carpeta destí -->
+                    <TextBlock Text="{Binding DestinationFolder}"
+                               Foreground="#4CAF50" FontSize="11" FontStyle="Italic"
+                               VerticalAlignment="Center" Margin="0,0,8,0"
+                               MaxWidth="200" TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding DestinationFolder}"
+                               Visibility="{Binding HasDestinationFolder, Converter={StaticResource BoolToVis}}"/>
+                    <Button Content="✕" FontSize="10" Padding="2,0" Cursor="Hand"
+                            Command="{Binding ClearDestinationFolderCommand}"
+                            Background="Transparent" BorderThickness="0"
+                            Foreground="{StaticResource TextSecondary}"
+                            VerticalAlignment="Center" Margin="0,0,12,0"
+                            ToolTip="Treure carpeta de destí"
+                            Visibility="{Binding HasDestinationFolder, Converter={StaticResource BoolToVis}}"/>
+
                     <TextBlock Text="{Binding CurrentFolderPath}"
                                Foreground="{StaticResource TextSecondary}"
                                FontSize="12" VerticalAlignment="Center"
@@ -355,6 +381,17 @@
                             <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
                         </Button>
 
+                        <!-- Botó copiar foto actual -->
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
+                                Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar foto (C)"
+                                Padding="6,4" Margin="4,0,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBlock Text="Copiar" FontSize="11" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
                         <!-- Botons de zoom -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
                             <Button Style="{StaticResource BtnToolbar}"
@@ -453,6 +490,17 @@
                                 Command="{Binding CloseViewerCommand}" ToolTip="Tancar (Esc)"
                                 Margin="4,0,0,0">
                             <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
+                        </Button>
+
+                        <!-- Botó copiar foto actual -->
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
+                                Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar foto (C)"
+                                Margin="4,0,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBlock Text="Copiar" FontSize="12" VerticalAlignment="Center" Foreground="White"/>
+                            </StackPanel>
                         </Button>
 
                         <!-- Botons de zoom -->
