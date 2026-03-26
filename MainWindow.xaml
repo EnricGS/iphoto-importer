@@ -437,13 +437,14 @@
                         <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
                     </Button>
 
-                    <!-- Imatge amb zoom i pan -->
+                    <!-- Imatge amb zoom i pan (visible quan NO és vídeo) -->
                     <Image x:Name="SplitViewerImageControl"
                            Source="{Binding ViewerImage}"
                            Stretch="Uniform"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                           RenderTransformOrigin="0.5,0.5">
+                           RenderTransformOrigin="0.5,0.5"
+                           Visibility="{Binding IsViewingVideo, Converter={StaticResource InvBoolToVis}}">
                         <Image.RenderTransform>
                             <TransformGroup>
                                 <ScaleTransform ScaleX="{Binding ViewerZoom}" ScaleY="{Binding ViewerZoom}"/>
@@ -451,6 +452,27 @@
                             </TransformGroup>
                         </Image.RenderTransform>
                     </Image>
+
+                    <!-- Reproductor de vídeo (visible quan és vídeo) -->
+                    <MediaElement x:Name="SplitVideoPlayer"
+                                  LoadedBehavior="Manual" UnloadedBehavior="Stop"
+                                  Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}"
+                                  MediaEnded="VideoPlayer_MediaEnded"/>
+
+                    <!-- Controls de vídeo -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12"
+                                Orientation="Horizontal"
+                                Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}">
+                        <Button x:Name="SplitVideoPlayBtn" Style="{StaticResource BtnToolbar}"
+                                Click="VideoPlay_Click" ToolTip="Play/Pause (Espai)" Padding="8,6" Margin="2,0">
+                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
+                        </Button>
+                        <Button Style="{StaticResource BtnToolbar}"
+                                Click="VideoStop_Click" ToolTip="Stop" Padding="8,6" Margin="2,0">
+                            <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
+                        </Button>
+                    </StackPanel>
 
                     <!-- Navegació dreta -->
                     <Button HorizontalAlignment="Right" VerticalAlignment="Center"
@@ -467,7 +489,7 @@
                         BorderBrush="{StaticResource BorderColor}" BorderThickness="0,1,0,0">
                     <TextBlock Foreground="{StaticResource TextDim}" FontSize="10"
                                VerticalAlignment="Center">
-                        <Run Text="← → navegar  |  +/- zoom  |  Tab canviar mode  |  Esc tancar"/>
+                        <Run Text="← → navegar  |  +/- zoom  |  Espai play/pause  |  Tab canviar mode  |  Esc tancar"/>
                     </TextBlock>
                 </Border>
             </Grid>
@@ -547,13 +569,14 @@
                         <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="22"/>
                     </Button>
 
-                    <!-- Imatge amb zoom i pan -->
+                    <!-- Imatge amb zoom i pan (visible quan NO és vídeo) -->
                     <Image x:Name="ViewerImageControl"
                            Source="{Binding ViewerImage}"
                            Stretch="Uniform"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                           RenderTransformOrigin="0.5,0.5">
+                           RenderTransformOrigin="0.5,0.5"
+                           Visibility="{Binding IsViewingVideo, Converter={StaticResource InvBoolToVis}}">
                         <Image.RenderTransform>
                             <TransformGroup>
                                 <ScaleTransform ScaleX="{Binding ViewerZoom}" ScaleY="{Binding ViewerZoom}"/>
@@ -561,6 +584,27 @@
                             </TransformGroup>
                         </Image.RenderTransform>
                     </Image>
+
+                    <!-- Reproductor de vídeo overlay -->
+                    <MediaElement x:Name="OverlayVideoPlayer"
+                                  LoadedBehavior="Manual" UnloadedBehavior="Stop"
+                                  Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}"
+                                  MediaEnded="VideoPlayer_MediaEnded"/>
+
+                    <!-- Controls de vídeo overlay -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,20"
+                                Orientation="Horizontal"
+                                Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}">
+                        <Button x:Name="OverlayVideoPlayBtn" Style="{StaticResource BtnToolbar}"
+                                Click="VideoPlay_Click" ToolTip="Play/Pause (Espai)" Padding="10,8" Margin="2,0">
+                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="20"/>
+                        </Button>
+                        <Button Style="{StaticResource BtnToolbar}"
+                                Click="VideoStop_Click" ToolTip="Stop" Padding="10,8" Margin="2,0">
+                            <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="20"/>
+                        </Button>
+                    </StackPanel>
 
                     <!-- Navegació dreta -->
                     <Button HorizontalAlignment="Right" VerticalAlignment="Center"

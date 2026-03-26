@@ -42,6 +42,10 @@ public partial class MainWindow : Window
         {
             UpdateSplitLayout();
         }
+        else if (e.PropertyName == nameof(MainViewModel.ViewerVideoPath))
+        {
+            LoadVideoInActivePlayer();
+        }
         // Guardar posició del scroll quan s'obre l'overlay, restaurar al tancar
         else if (e.PropertyName == nameof(MainViewModel.IsOverlayViewerVisible))
         {
@@ -155,6 +159,10 @@ public partial class MainWindow : Window
                     break;
                 case Key.C when Keyboard.Modifiers == ModifierKeys.None:
                     _viewModel.CopyCurrentPhotoCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Key.Space:
+                    VideoPlay_Click(this, e);
                     e.Handled = true;
                     break;
             }
@@ -271,5 +279,68 @@ public partial class MainWindow : Window
         var pos = e.GetPosition(this);
         _viewModel.ViewerOffsetX = _dragStartOffsetX + (pos.X - _dragStart.X);
         _viewModel.ViewerOffsetY = _dragStartOffsetY + (pos.Y - _dragStart.Y);
+    }
+
+    // === Control de vídeo ===
+
+    private bool _isVideoPlaying;
+
+    /// <summary>Retorna el MediaElement actiu (split o overlay).</summary>
+    private MediaElement? GetActiveVideoPlayer()
+    {
+        if (_viewModel.IsSplitMode)
+            return SplitVideoPlayer;
+        return OverlayVideoPlayer;
+    }
+
+    private void LoadVideoInActivePlayer()
+    {
+        // Aturar qualsevol vídeo anterior
+        SplitVideoPlayer.Stop();
+        SplitVideoPlayer.Source = null;
+        OverlayVideoPlayer.Stop();
+        OverlayVideoPlayer.Source = null;
+        _isVideoPlaying = false;
+
+        var path = _viewModel.ViewerVideoPath;
+        if (string.IsNullOrEmpty(path)) return;
+
+        var player = GetActiveVideoPlayer();
+        if (player == null) return;
+
+        player.Source = new Uri(path, UriKind.Absolute);
+        player.Play();
+        _isVideoPlaying = true;
+    }
+
+    private void VideoPlay_Click(object sender, RoutedEventArgs e)
+    {
+        var player = GetActiveVideoPlayer();
+        if (player?.Source == null) return;
+
+        if (_isVideoPlaying)
+        {
+            player.Pause();
+            _isVideoPlaying = false;
+        }
+        else
+        {
+            player.Play();
+            _isVideoPlaying = true;
+        }
+    }
+
+    private void VideoStop_Click(object sender, RoutedEventArgs e)
+    {
+        var player = GetActiveVideoPlayer();
+        if (player?.Source == null) return;
+
+        player.Stop();
+        _isVideoPlaying = false;
+    }
+
+    private void VideoPlayer_MediaEnded(object sender, RoutedEventArgs e)
+    {
+        _isVideoPlaying = false;
     }
 }

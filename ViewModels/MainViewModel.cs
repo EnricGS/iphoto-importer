@@ -90,6 +90,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _viewerInfoText = "";
 
+    [ObservableProperty]
+    private bool _isViewingVideo;
+
+    [ObservableProperty]
+    private string? _viewerVideoPath;
+
     /// <summary>Indica si hi ha una imatge al visor</summary>
     public bool HasViewerImage => IsViewerOpen && ViewerImage != null;
 
@@ -329,6 +335,8 @@ public partial class MainViewModel : ObservableObject
         IsViewerOpen = false;
         ViewerImage = null;
         ViewerCurrentItem = null;
+        IsViewingVideo = false;
+        ViewerVideoPath = null;
         ViewerZoom = 1.0;
         ViewerOffsetX = 0;
         ViewerOffsetY = 0;
@@ -382,6 +390,20 @@ public partial class MainViewModel : ObservableObject
     {
         ViewerCurrentItem = item;
         item.IsHighlighted = true;
+
+        if (item.IsVideo)
+        {
+            // Vídeo: mostrar amb MediaElement
+            IsViewingVideo = true;
+            ViewerVideoPath = item.FullPath;
+            ViewerImage = item.Thumbnail; // Mostrar thumbnail com a placeholder
+            UpdateViewerInfo(item);
+            return;
+        }
+
+        // Imatge
+        IsViewingVideo = false;
+        ViewerVideoPath = null;
 
         // 1. Mostrar miniatura immediatament (render progressiu)
         if (item.Thumbnail != null)
