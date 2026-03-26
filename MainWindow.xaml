@@ -8,8 +8,8 @@
         MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized"
-        Background="#1E1E1E"
-        FontFamily="Segoe UI"
+        Background="{StaticResource BgBase}"
+        FontFamily="Segoe UI Variable, Segoe UI"
         KeyDown="Window_KeyDown">
 
     <Window.Resources>
@@ -21,25 +21,44 @@
         <conv:FileSizeConverter x:Key="FileSizeConv"/>
         <conv:NullToBoolConverter x:Key="NullToBool"/>
 
-        <!-- Colors principals -->
-        <SolidColorBrush x:Key="BgDark" Color="#1E1E1E"/>
-        <SolidColorBrush x:Key="BgMedium" Color="#2D2D2D"/>
-        <SolidColorBrush x:Key="BgLight" Color="#3C3C3C"/>
-        <SolidColorBrush x:Key="BgHover" Color="#4A4A4A"/>
-        <SolidColorBrush x:Key="Accent" Color="#2979FF"/>
-        <SolidColorBrush x:Key="AccentLight" Color="#448AFF"/>
-        <SolidColorBrush x:Key="TextPrimary" Color="#ECECEC"/>
-        <SolidColorBrush x:Key="TextSecondary" Color="#999999"/>
-        <SolidColorBrush x:Key="TextDim" Color="#666666"/>
-        <SolidColorBrush x:Key="BorderColor" Color="#404040"/>
-        <SolidColorBrush x:Key="SelectedBg" Color="#1A2979FF"/>
-        <SolidColorBrush x:Key="HighlightBorder" Color="#2979FF"/>
-        <SolidColorBrush x:Key="DangerColor" Color="#E53935"/>
+        <!-- ============ PALETA MODERNA (warm dark theme) ============ -->
+        <!-- Fons -->
+        <SolidColorBrush x:Key="BgBase" Color="#141216"/>
+        <SolidColorBrush x:Key="BgSurface" Color="#1C1A1F"/>
+        <SolidColorBrush x:Key="BgElevated" Color="#252229"/>
+        <SolidColorBrush x:Key="BgCard" Color="#2A2730"/>
+        <SolidColorBrush x:Key="BgHover" Color="#352F3A"/>
+        <SolidColorBrush x:Key="BgOverlay" Color="#F0141216"/>
 
-        <!-- Estil base dels botons -->
+        <!-- Accent (warm amber/terracotta) -->
+        <SolidColorBrush x:Key="Accent" Color="#E8935A"/>
+        <SolidColorBrush x:Key="AccentLight" Color="#F0A870"/>
+        <SolidColorBrush x:Key="AccentDim" Color="#B06830"/>
+        <SolidColorBrush x:Key="AccentSubtle" Color="#2AE8935A"/>
+
+        <!-- Text -->
+        <SolidColorBrush x:Key="TextPrimary" Color="#F0EDE8"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#A8A0B0"/>
+        <SolidColorBrush x:Key="TextDim" Color="#706878"/>
+        <SolidColorBrush x:Key="TextOnAccent" Color="#1A1018"/>
+
+        <!-- Vores i separadors -->
+        <SolidColorBrush x:Key="BorderSubtle" Color="#30FFFFFF"/>
+        <SolidColorBrush x:Key="BorderMedium" Color="#40FFFFFF"/>
+
+        <!-- Semàntics -->
+        <SolidColorBrush x:Key="SuccessColor" Color="#6ECB8B"/>
+        <SolidColorBrush x:Key="DangerColor" Color="#E85A6F"/>
+        <SolidColorBrush x:Key="HighlightBorder" Color="#E8935A"/>
+        <SolidColorBrush x:Key="SelectedBorder" Color="#E8935A"/>
+
+        <!-- ============ ESTILS BASE ============ -->
+
+        <!-- Botó base modern -->
         <Style x:Key="BtnBase" TargetType="Button">
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+            <Setter Property="Padding" Value="14,7"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
@@ -48,16 +67,22 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border"
                                 Background="{TemplateBinding Background}"
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}">
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}"
+                                BorderThickness="1"
+                                BorderBrush="Transparent">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource BorderSubtle}"/>
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource BgHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.8"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="border" Property="Opacity" Value="0.45"/>
+                                <Setter TargetName="border" Property="Opacity" Value="0.35"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -66,25 +91,123 @@
         </Style>
 
         <Style x:Key="BtnToolbar" TargetType="Button" BasedOn="{StaticResource BtnBase}">
-            <Setter Property="Background" Value="{StaticResource BgLight}"/>
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Background" Value="{StaticResource BgElevated}"/>
+            <Setter Property="Padding" Value="12,7"/>
         </Style>
 
         <Style x:Key="BtnPrimary" TargetType="Button" BasedOn="{StaticResource BtnBase}">
             <Setter Property="Background" Value="{StaticResource Accent}"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource TextOnAccent}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentLight}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentDim}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.35"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="BtnDanger" TargetType="Button" BasedOn="{StaticResource BtnBase}">
             <Setter Property="Background" Value="{StaticResource DangerColor}"/>
             <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.35"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <!-- Estil Slider tema fosc -->
-        <Style x:Key="DarkSlider" TargetType="Slider">
+        <!-- Botó icona (circular/compacte) -->
+        <Style x:Key="BtnIcon" TargetType="Button" BasedOn="{StaticResource BtnBase}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource BgHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Slider modern -->
+        <Style x:Key="ModernSlider" TargetType="Slider">
             <Setter Property="Foreground" Value="{StaticResource Accent}"/>
         </Style>
+
+        <!-- Estil nav button (semitransparent, arrodonit) -->
+        <Style x:Key="BtnNav" TargetType="Button">
+            <Setter Property="Background" Value="#40000000"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Opacity" Value="0.5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.9"/>
+                                <Setter TargetName="border" Property="Background" Value="#60000000"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </Window.Resources>
 
     <Grid>
@@ -96,16 +219,19 @@
         </Grid.RowDefinitions>
 
         <!-- ==================== BARRA SUPERIOR ==================== -->
-        <Border Grid.Row="0" Background="{StaticResource BgMedium}" Padding="12,8"
-                BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Background="{StaticResource BgSurface}" Padding="16,10"
+                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
             <DockPanel>
-                <!-- Títol -->
-                <TextBlock DockPanel.Dock="Left" Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
-                           FontSize="18" Foreground="{StaticResource Accent}"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock DockPanel.Dock="Left" Text="iPhoto Viewer"
-                           FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"
-                           VerticalAlignment="Center" Margin="0,0,20,0"/>
+                <!-- Logotip i títol -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <Border Background="{StaticResource AccentSubtle}" CornerRadius="8" Padding="6" Margin="0,0,10,0">
+                        <TextBlock Text="&#xEB9F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                   FontSize="16" Foreground="{StaticResource Accent}" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="iPhoto Viewer"
+                               FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"
+                               VerticalAlignment="Center" Opacity="0.9"/>
+                </StackPanel>
 
                 <!-- Botons dreta -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -114,9 +240,10 @@
                             Command="{Binding ToggleViewModeCommand}"
                             Margin="4,0" ToolTip="Canviar mode de visualització (Tab / F5)">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                            <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="{Binding ViewModeLabel}" VerticalAlignment="Center" FontSize="11"/>
+                            <TextBlock Text="{Binding ViewModeLabel}" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{StaticResource TextSecondary}"/>
                         </StackPanel>
                     </Button>
 
@@ -125,55 +252,60 @@
                             Command="{Binding ToggleImportPanelCommand}"
                             Margin="4,0" ToolTip="Importar des de dispositiu MTP">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE8B5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                            <TextBlock Text="&#xE8B5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Importar" VerticalAlignment="Center"/>
+                            <TextBlock Text="Importar" VerticalAlignment="Center" FontSize="11"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
-                <!-- Carpeta actual i botó obrir -->
+                <!-- Carpeta actual i botons -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource BtnPrimary}"
                             Command="{Binding OpenFolderCommand}"
-                            Margin="0,0,8,0">
+                            Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xED25;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                            <TextBlock Text="&#xED25;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Obrir carpeta" VerticalAlignment="Center"/>
+                            <TextBlock Text="Obrir carpeta" VerticalAlignment="Center" FontSize="12"/>
                         </StackPanel>
                     </Button>
 
                     <!-- Botó carpeta destí -->
                     <Button Style="{StaticResource BtnToolbar}"
                             Command="{Binding SetDestinationFolderCommand}"
-                            Margin="0,0,4,0" ToolTip="Definir carpeta de destí per còpies">
+                            Margin="0,0,4,0" ToolTip="Definir carpeta de destí per copies">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE8DE;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                            <TextBlock Text="&#xE8DE;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Destí" VerticalAlignment="Center"/>
+                            <TextBlock Text="Desti" VerticalAlignment="Center" FontSize="11"/>
                         </StackPanel>
                     </Button>
 
-                    <!-- Indicador carpeta destí -->
+                    <!-- Indicador carpeta desti -->
                     <TextBlock Text="{Binding DestinationFolder}"
-                               Foreground="#4CAF50" FontSize="11" FontStyle="Italic"
-                               VerticalAlignment="Center" Margin="0,0,8,0"
-                               MaxWidth="200" TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource SuccessColor}" FontSize="11" FontStyle="Italic"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               MaxWidth="180" TextTrimming="CharacterEllipsis"
                                ToolTip="{Binding DestinationFolder}"
                                Visibility="{Binding HasDestinationFolder, Converter={StaticResource BoolToVis}}"/>
-                    <Button Content="✕" FontSize="10" Padding="2,0" Cursor="Hand"
+                    <Button Style="{StaticResource BtnIcon}" Padding="4,2"
                             Command="{Binding ClearDestinationFolderCommand}"
-                            Background="Transparent" BorderThickness="0"
-                            Foreground="{StaticResource TextSecondary}"
                             VerticalAlignment="Center" Margin="0,0,12,0"
-                            ToolTip="Treure carpeta de destí"
-                            Visibility="{Binding HasDestinationFolder, Converter={StaticResource BoolToVis}}"/>
+                            ToolTip="Treure carpeta de desti"
+                            Visibility="{Binding HasDestinationFolder, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                   FontSize="10" Foreground="{StaticResource TextDim}"/>
+                    </Button>
+
+                    <!-- Separador visual -->
+                    <Border Width="1" Height="20" Background="{StaticResource BorderSubtle}" Margin="4,0,12,0"
+                            VerticalAlignment="Center"/>
 
                     <TextBlock Text="{Binding CurrentFolderPath}"
-                               Foreground="{StaticResource TextSecondary}"
-                               FontSize="12" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" MaxWidth="500"/>
+                               Foreground="{StaticResource TextDim}"
+                               FontSize="11" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" MaxWidth="400"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -181,107 +313,110 @@
         <!-- ==================== CONTINGUT PRINCIPAL ==================== -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <!-- Graella de miniatures: ocupa tot en mode toggle, ~40% en split -->
                 <ColumnDefinition x:Name="GridColumn" Width="*"/>
-                <!-- Separador entre graella i visor (només visible en split) -->
                 <ColumnDefinition x:Name="SplitterColumn" Width="0"/>
-                <!-- Visor lateral (només visible en split) -->
                 <ColumnDefinition x:Name="ViewerColumn" Width="0"/>
             </Grid.ColumnDefinitions>
 
             <!-- ==================== GRAELLA DE MINIATURES ==================== -->
             <Grid Grid.Column="0">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>  <!-- Controls de graella -->
-                    <RowDefinition Height="*"/>      <!-- Graella -->
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Controls de graella (slider, comptadors) -->
-                <Border Grid.Row="0" Background="{StaticResource BgMedium}" Padding="12,6"
-                        BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1"
+                <!-- Barra de controls de graella -->
+                <Border Grid.Row="0" Background="{StaticResource BgSurface}" Padding="16,8"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1"
                         Visibility="{Binding Photos.Count, Converter={StaticResource PosToVis}}">
                     <DockPanel>
                         <!-- Comptador -->
                         <TextBlock DockPanel.Dock="Left"
-                                   Foreground="{StaticResource TextSecondary}"
+                                   Foreground="{StaticResource TextDim}"
                                    FontSize="12" VerticalAlignment="Center">
-                            <Run Text="{Binding Photos.Count, Mode=OneWay}"/>
-                            <Run Text="imatges"/>
+                            <Run Text="{Binding Photos.Count, Mode=OneWay}" Foreground="{StaticResource TextSecondary}"/>
+                            <Run Text=" elements"/>
                         </TextBlock>
 
                         <!-- Slider de mida -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="S" Foreground="{StaticResource TextDim}" FontSize="10"
-                                       VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBlock Text="&#xE799;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                       Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <Slider Value="{Binding ThumbnailSize}" Minimum="80" Maximum="400"
-                                    Width="120" VerticalAlignment="Center"
-                                    Style="{StaticResource DarkSlider}"/>
-                            <TextBlock Text="XL" Foreground="{StaticResource TextDim}" FontSize="10"
-                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                    Width="100" VerticalAlignment="Center"
+                                    Style="{StaticResource ModernSlider}"/>
+                            <TextBlock Text="&#xE740;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                       Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                         </StackPanel>
 
                         <!-- Filtre per tipus -->
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,16,0">
-                            <TextBlock Text="&#xE71D;" FontFamily="Segoe MDL2 Assets" FontSize="12"
-                                       Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <RadioButton Content="Tot" IsChecked="True" GroupName="TypeFilter"
-                                         Foreground="{StaticResource TextPrimary}" FontSize="11"
-                                         VerticalAlignment="Center" Margin="0,0,6,0"
-                                         Checked="FilterAll_Checked"/>
-                            <RadioButton x:Name="FilterPhotosRadio" GroupName="TypeFilter"
-                                         Foreground="{StaticResource TextPrimary}" FontSize="11"
-                                         VerticalAlignment="Center" Margin="0,0,6,0"
-                                         Checked="FilterPhotos_Checked">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,20,0">
+                            <Border Background="{StaticResource BgElevated}" CornerRadius="8" Padding="2">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" FontSize="10"
-                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                    <TextBlock VerticalAlignment="Center">
-                                        <Run Text="Fotos ("/>
-                                        <Run Text="{Binding PhotoCount, Mode=OneWay}"/>
-                                        <Run Text=")"/>
-                                    </TextBlock>
+                                    <RadioButton x:Name="FilterAllRadio" Content="Tot" IsChecked="True" GroupName="TypeFilter"
+                                                 Style="{StaticResource {x:Type RadioButton}}"
+                                                 Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                                 VerticalAlignment="Center" Margin="6,2,6,2"
+                                                 Checked="FilterAll_Checked"/>
+                                    <Border Width="1" Height="14" Background="{StaticResource BorderSubtle}" VerticalAlignment="Center"/>
+                                    <RadioButton x:Name="FilterPhotosRadio" GroupName="TypeFilter"
+                                                 Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                                 VerticalAlignment="Center" Margin="6,2,6,2"
+                                                 Checked="FilterPhotos_Checked">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xEB9F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                                       VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{StaticResource TextDim}"/>
+                                            <TextBlock VerticalAlignment="Center">
+                                                <Run Text="{Binding PhotoCount, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <Border Width="1" Height="14" Background="{StaticResource BorderSubtle}" VerticalAlignment="Center"/>
+                                    <RadioButton x:Name="FilterVideosRadio" GroupName="TypeFilter"
+                                                 Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                                 VerticalAlignment="Center" Margin="6,2,6,2"
+                                                 Checked="FilterVideos_Checked">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE714;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                                       VerticalAlignment="Center" Margin="0,0,4,0" Foreground="{StaticResource TextDim}"/>
+                                            <TextBlock VerticalAlignment="Center">
+                                                <Run Text="{Binding VideoCount, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </RadioButton>
                                 </StackPanel>
-                            </RadioButton>
-                            <RadioButton x:Name="FilterVideosRadio" GroupName="TypeFilter"
-                                         Foreground="{StaticResource TextPrimary}" FontSize="11"
-                                         VerticalAlignment="Center" Margin="0,0,6,0"
-                                         Checked="FilterVideos_Checked">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE714;" FontFamily="Segoe MDL2 Assets" FontSize="10"
-                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                    <TextBlock VerticalAlignment="Center">
-                                        <Run Text="Vídeos ("/>
-                                        <Run Text="{Binding VideoCount, Mode=OneWay}"/>
-                                        <Run Text=")"/>
-                                    </TextBlock>
-                                </StackPanel>
-                            </RadioButton>
+                            </Border>
                         </StackPanel>
 
-                        <!-- Selecció ràpida -->
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,16,0">
-                            <Button Content="Sel. tot" Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding SelectAllCommand}" Margin="0,0,4,0"
-                                    FontSize="11" Padding="8,4"/>
-                            <Button Content="Cap" Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding DeselectAllCommand}"
-                                    FontSize="11" Padding="8,4"/>
+                        <!-- Seleccio rapida -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0">
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding SelectAllCommand}" ToolTip="Seleccionar tot (Ctrl+A)" Padding="6,4">
+                                <TextBlock Text="&#xE762;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           FontSize="12" Foreground="{StaticResource TextDim}"/>
+                            </Button>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding DeselectAllCommand}" ToolTip="Desseleccionar tot (Ctrl+D)" Padding="6,4">
+                                <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           FontSize="12" Foreground="{StaticResource TextDim}"/>
+                            </Button>
                         </StackPanel>
 
                         <Border/>
                     </DockPanel>
                 </Border>
 
-                <!-- Graella de miniatures amb virtualització -->
+                <!-- Graella de miniatures -->
                 <ScrollViewer Grid.Row="1" x:Name="ThumbnailScrollViewer"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
-                              Background="{StaticResource BgDark}">
+                              Background="{StaticResource BgBase}">
                     <ItemsControl ItemsSource="{Binding Photos}"
                                   x:Name="PhotoGrid"
                                   VirtualizingPanel.IsVirtualizing="True"
                                   VirtualizingPanel.VirtualizationMode="Recycling"
-                                  VirtualizingPanel.ScrollUnit="Pixel">
+                                  VirtualizingPanel.ScrollUnit="Pixel"
+                                  Margin="8,8,8,8">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel/>
@@ -293,8 +428,8 @@
                                 <Border x:Name="ThumbBorder"
                                         Width="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=Window}}"
                                         Height="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        Margin="2" CornerRadius="4" ClipToBounds="True"
-                                        Background="{StaticResource BgLight}"
+                                        Margin="3" CornerRadius="10" ClipToBounds="True"
+                                        Background="{StaticResource BgCard}"
                                         BorderThickness="2" BorderBrush="Transparent"
                                         Cursor="Hand"
                                         MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown">
@@ -304,11 +439,24 @@
                                                RenderOptions.BitmapScalingMode="HighQuality"/>
 
                                         <!-- Placeholder si no hi ha miniatura -->
-                                        <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
-                                                   FontSize="28" Foreground="#555"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
+                                        <Border Background="{StaticResource BgElevated}">
+                                            <TextBlock Text="&#xEB9F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                       FontSize="28" Foreground="{StaticResource TextDim}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Opacity="0.5">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Border.Style>
+                                                <Style TargetType="Border">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
@@ -316,43 +464,51 @@
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-
-                                        <!-- Indicador de vídeo -->
-                                        <Border HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                Background="#80000000" CornerRadius="20" Padding="8"
-                                                Visibility="{Binding IsVideo, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets"
-                                                       FontSize="20" Foreground="White"/>
+                                            </Border.Style>
                                         </Border>
 
-                                        <!-- Checkbox de selecció -->
-                                        <CheckBox IsChecked="{Binding IsSelected}"
-                                                  HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                  Margin="4,4,0,0" Opacity="0.9">
-                                            <CheckBox.LayoutTransform>
-                                                <ScaleTransform ScaleX="1.1" ScaleY="1.1"/>
-                                            </CheckBox.LayoutTransform>
-                                        </CheckBox>
+                                        <!-- Indicador de video -->
+                                        <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                Background="#80000000" CornerRadius="24" Padding="10"
+                                                Visibility="{Binding IsVideo, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                       FontSize="18" Foreground="White"/>
+                                        </Border>
+
+                                        <!-- Gradient overlay a baix -->
+                                        <Border VerticalAlignment="Bottom" Height="36">
+                                            <Border.Background>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="Transparent" Offset="0"/>
+                                                    <GradientStop Color="#A0000000" Offset="1"/>
+                                                </LinearGradientBrush>
+                                            </Border.Background>
+                                        </Border>
 
                                         <!-- Nom del fitxer a baix -->
-                                        <Border VerticalAlignment="Bottom" Background="#C0000000"
-                                                Padding="4,2">
-                                            <TextBlock Text="{Binding FileName}" FontSize="10"
-                                                       Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                        </Border>
+                                        <TextBlock VerticalAlignment="Bottom" Margin="8,0,8,6"
+                                                   Text="{Binding FileName}" FontSize="10"
+                                                   Foreground="#D0FFFFFF" TextTrimming="CharacterEllipsis"/>
+
+                                        <!-- Checkbox de seleccio (top-left, estil modern) -->
+                                        <CheckBox IsChecked="{Binding IsSelected}"
+                                                  HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                  Margin="6,6,0,0" Opacity="0.85">
+                                            <CheckBox.LayoutTransform>
+                                                <ScaleTransform ScaleX="1.05" ScaleY="1.05"/>
+                                            </CheckBox.LayoutTransform>
+                                        </CheckBox>
                                     </Grid>
                                 </Border>
 
-                                <!-- Triggers per ressaltat i selecció -->
+                                <!-- Triggers per ressaltat i seleccio -->
                                 <DataTemplate.Triggers>
                                     <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                         <Setter TargetName="ThumbBorder" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                                        <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.85"/>
+                                        <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.9"/>
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
-                                        <Setter TargetName="ThumbBorder" Property="BorderBrush" Value="#FFD700"/>
+                                        <Setter TargetName="ThumbBorder" Property="BorderBrush" Value="{StaticResource AccentLight}"/>
                                         <Setter TargetName="ThumbBorder" Property="BorderThickness" Value="3"/>
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
@@ -361,32 +517,41 @@
                     </ItemsControl>
                 </ScrollViewer>
 
-                <!-- Missatge quan no hi ha fotos -->
+                <!-- Missatge benvinguda quan no hi ha fotos -->
                 <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
                             Visibility="{Binding Photos.Count, Converter={StaticResource ZeroToVis}}">
-                    <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
-                               FontSize="56" Foreground="#444" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                    <Border Background="{StaticResource AccentSubtle}" CornerRadius="20" Padding="16"
+                            HorizontalAlignment="Center" Margin="0,0,0,20">
+                        <TextBlock Text="&#xEB9F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                   FontSize="44" Foreground="{StaticResource Accent}" HorizontalAlignment="Center"/>
+                    </Border>
                     <TextBlock Text="Obre una carpeta per veure les imatges"
-                               FontSize="16" Foreground="{StaticResource TextSecondary}"
-                               HorizontalAlignment="Center"/>
+                               FontSize="18" FontWeight="Light" Foreground="{StaticResource TextPrimary}"
+                               HorizontalAlignment="Center" Opacity="0.8"/>
                     <TextBlock Text="o importa fotos des d'un dispositiu MTP"
                                FontSize="13" Foreground="{StaticResource TextDim}"
-                               HorizontalAlignment="Center" Margin="0,6,0,16"/>
-                    <Button Content="Obrir carpeta" Style="{StaticResource BtnPrimary}"
+                               HorizontalAlignment="Center" Margin="0,8,0,24"/>
+                    <Button Style="{StaticResource BtnPrimary}"
                             Command="{Binding OpenFolderCommand}"
-                            FontSize="14" Padding="20,10"
-                            HorizontalAlignment="Center"/>
+                            FontSize="14" Padding="28,12"
+                            HorizontalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xED25;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="Obrir carpeta" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
-                <!-- Spinner de càrrega -->
-                <Border Grid.Row="1" Background="#C01E1E1E"
+                <!-- Spinner de carrega -->
+                <Border Grid.Row="1" Background="#E0141216"
                         Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <ProgressBar IsIndeterminate="True" Width="200" Height="4"
-                                     Foreground="{StaticResource Accent}" Background="{StaticResource BgLight}"
+                        <ProgressBar IsIndeterminate="True" Width="240" Height="3"
+                                     Foreground="{StaticResource Accent}" Background="{StaticResource BgElevated}"
                                      BorderThickness="0"/>
                         <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondary}"
-                                   FontSize="13" Margin="0,12,0,0" HorizontalAlignment="Center"/>
+                                   FontSize="13" Margin="0,16,0,0" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </Border>
             </Grid>
@@ -394,14 +559,14 @@
             <!-- ==================== SEPARADOR SPLIT ==================== -->
             <GridSplitter x:Name="SplitGridSplitter" Grid.Column="1"
                           Width="4" HorizontalAlignment="Stretch"
-                          Background="{StaticResource BorderColor}"
+                          Background="{StaticResource BorderSubtle}"
                           Visibility="{Binding IsSplitViewerVisible, Converter={StaticResource BoolToVis}}"
                           Cursor="SizeWE"/>
 
             <!-- ==================== VISOR LATERAL (mode split) ==================== -->
             <Grid x:Name="SplitViewerPanel" Grid.Column="2"
                   Visibility="{Binding IsSplitViewerVisible, Converter={StaticResource BoolToVis}}"
-                  Background="{StaticResource BgDark}">
+                  Background="{StaticResource BgBase}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
@@ -409,51 +574,49 @@
                 </Grid.RowDefinitions>
 
                 <!-- Barra superior del visor split -->
-                <Border Grid.Row="0" Background="{StaticResource BgMedium}" Padding="8,6"
-                        BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1">
+                <Border Grid.Row="0" Background="{StaticResource BgSurface}" Padding="12,7"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
                     <DockPanel>
-                        <!-- Botó tancar visor split -->
-                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
-                                Command="{Binding CloseViewerCommand}" ToolTip="Tancar visor (Esc)"
-                                Padding="6,4" Margin="4,0,0,0">
-                            <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
+                                Command="{Binding CloseViewerCommand}" ToolTip="Tancar visor (Esc)" Padding="6,4">
+                            <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                       Foreground="{StaticResource TextDim}"/>
                         </Button>
 
-                        <!-- Botó copiar foto actual -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
                                 Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar foto (C)"
-                                Padding="6,4" Margin="4,0,0,0">
+                                Padding="8,5" Margin="4,0,0,0">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11"
                                            VerticalAlignment="Center" Margin="0,0,4,0"/>
                                 <TextBlock Text="Copiar" FontSize="11" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
 
                         <!-- Botons de zoom -->
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
-                            <Button Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding ViewerZoomOutCommand}" ToolTip="Reduir (-)"
-                                    Padding="6,4" Margin="1,0">
-                                <TextBlock Text="&#xE738;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,6,0">
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding ViewerZoomOutCommand}" ToolTip="Reduir (-)" Padding="5,4">
+                                <TextBlock Text="&#xE738;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11"/>
                             </Button>
-                            <TextBlock Foreground="{StaticResource TextSecondary}"
-                                       VerticalAlignment="Center" FontSize="11" Margin="2,0"
+                            <TextBlock Foreground="{StaticResource TextDim}"
+                                       VerticalAlignment="Center" FontSize="10" Margin="2,0"
                                        Text="{Binding ViewerZoom, StringFormat={}{0:P0}}"/>
-                            <Button Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding ViewerZoomInCommand}" ToolTip="Ampliar (+)"
-                                    Padding="6,4" Margin="1,0">
-                                <TextBlock Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding ViewerZoomInCommand}" ToolTip="Ampliar (+)" Padding="5,4">
+                                <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11"/>
                             </Button>
-                            <Button Style="{StaticResource BtnToolbar}"
+                            <Button Style="{StaticResource BtnIcon}"
                                     Command="{Binding ViewerZoomResetCommand}" ToolTip="Reset zoom (0)"
-                                    Content="1:1" FontSize="10" Padding="6,4" Margin="1,0"/>
+                                    Padding="5,4">
+                                <TextBlock Text="1:1" FontSize="10" Foreground="{StaticResource TextDim}"/>
+                            </Button>
                         </StackPanel>
 
                         <!-- Info imatge -->
                         <TextBlock Text="{Binding ViewerInfoText}"
-                                   Foreground="{StaticResource TextSecondary}"
-                                   FontSize="11" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextDim}"
+                                   FontSize="10" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
                 </Border>
@@ -466,16 +629,15 @@
                       MouseMove="Viewer_MouseMove"
                       Background="Transparent">
 
-                    <!-- Navegació esquerra -->
                     <Button HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Style="{StaticResource BtnToolbar}"
+                            Style="{StaticResource BtnNav}"
                             Command="{Binding ViewerPreviousCommand}"
-                            Width="40" Height="60" Margin="8,0" Opacity="0.5"
-                            ToolTip="Anterior (←)">
-                        <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
+                            Width="40" Height="64" Margin="10,0" Panel.ZIndex="10"
+                            ToolTip="Anterior">
+                        <TextBlock Text="&#xE76B;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   Foreground="White"/>
                     </Button>
 
-                    <!-- Imatge amb zoom i pan (visible quan NO és vídeo) -->
                     <Image x:Name="SplitViewerImageControl"
                            Source="{Binding ViewerImage}"
                            Stretch="Uniform"
@@ -491,43 +653,46 @@
                         </Image.RenderTransform>
                     </Image>
 
-                    <!-- Reproductor de vídeo (visible quan és vídeo) -->
                     <MediaElement x:Name="SplitVideoPlayer"
                                   LoadedBehavior="Manual" UnloadedBehavior="Stop"
                                   Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}"
                                   MediaEnded="VideoPlayer_MediaEnded"/>
 
-                    <!-- Controls de vídeo -->
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,12"
-                                Orientation="Horizontal"
-                                Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}">
-                        <Button x:Name="SplitVideoPlayBtn" Style="{StaticResource BtnToolbar}"
-                                Click="VideoPlay_Click" ToolTip="Play/Pause (Espai)" Padding="8,6" Margin="2,0">
-                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
-                        </Button>
-                        <Button Style="{StaticResource BtnToolbar}"
-                                Click="VideoStop_Click" ToolTip="Stop" Padding="8,6" Margin="2,0">
-                            <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
-                        </Button>
-                    </StackPanel>
+                    <!-- Controls de video -->
+                    <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,16"
+                            Background="#60000000" CornerRadius="12" Padding="4"
+                            Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="SplitVideoPlayBtn" Style="{StaticResource BtnIcon}"
+                                    Click="VideoPlay_Click" ToolTip="Play/Pause (Espai)" Padding="8,6">
+                                <TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                           Foreground="White"/>
+                            </Button>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Click="VideoStop_Click" ToolTip="Stop" Padding="8,6">
+                                <TextBlock Text="&#xE71A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                           Foreground="White"/>
+                            </Button>
+                        </StackPanel>
+                    </Border>
 
-                    <!-- Navegació dreta -->
                     <Button HorizontalAlignment="Right" VerticalAlignment="Center"
-                            Style="{StaticResource BtnToolbar}"
+                            Style="{StaticResource BtnNav}"
                             Command="{Binding ViewerNextCommand}"
-                            Width="40" Height="60" Margin="8,0" Opacity="0.5"
-                            ToolTip="Següent (→)">
-                        <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
+                            Width="40" Height="64" Margin="10,0" Panel.ZIndex="10"
+                            ToolTip="Seguent">
+                        <TextBlock Text="&#xE76C;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   Foreground="White"/>
                     </Button>
                 </Grid>
 
                 <!-- Barra inferior del visor split -->
-                <Border Grid.Row="2" Background="{StaticResource BgMedium}" Padding="8,4"
-                        BorderBrush="{StaticResource BorderColor}" BorderThickness="0,1,0,0">
-                    <TextBlock Foreground="{StaticResource TextDim}" FontSize="10"
-                               VerticalAlignment="Center">
-                        <Run Text="← → navegar  |  +/- zoom  |  Espai play/pause  |  Tab canviar mode  |  Esc tancar"/>
+                <Border Grid.Row="2" Background="{StaticResource BgSurface}" Padding="12,5"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
+                    <TextBlock Foreground="{StaticResource TextDim}" FontSize="10" VerticalAlignment="Center"
+                               Opacity="0.6">
+                        <Run Text="Navegar  |  +/- zoom  |  Espai play  |  Tab mode  |  Esc tancar"/>
                     </TextBlock>
                 </Border>
             </Grid>
@@ -535,62 +700,66 @@
             <!-- ==================== VISOR D'IMATGES OVERLAY (mode toggle) ==================== -->
             <Grid x:Name="ViewerOverlay" Grid.ColumnSpan="3"
                   Visibility="{Binding IsOverlayViewerVisible, Converter={StaticResource BoolToVis}}"
-                  Background="#F0000000">
+                  Background="{StaticResource BgOverlay}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Barra superior del visor -->
-                <Border Grid.Row="0" Background="#A0000000" Padding="12,8">
+                <!-- Barra superior del visor overlay -->
+                <Border Grid.Row="0" Padding="16,10">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#C0141216" Offset="0"/>
+                            <GradientStop Color="Transparent" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
                     <DockPanel>
-                        <!-- Botó tancar -->
-                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
-                                Command="{Binding CloseViewerCommand}" ToolTip="Tancar (Esc)"
-                                Margin="4,0,0,0">
-                            <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="16"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
+                                Command="{Binding CloseViewerCommand}" ToolTip="Tancar (Esc)">
+                            <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                       Foreground="White"/>
                         </Button>
 
-                        <!-- Botó copiar foto actual -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
                                 Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar foto (C)"
                                 Margin="4,0,0,0">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="14"
-                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                                           VerticalAlignment="Center" Margin="0,0,5,0"/>
                                 <TextBlock Text="Copiar" FontSize="12" VerticalAlignment="Center" Foreground="White"/>
                             </StackPanel>
                         </Button>
 
-                        <!-- Botons de zoom -->
+                        <!-- Zoom -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,8,0">
-                            <Button Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding ViewerZoomOutCommand}" ToolTip="Reduir (-)"
-                                    Margin="2,0">
-                                <TextBlock Text="&#xE738;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding ViewerZoomOutCommand}" ToolTip="Reduir (-)">
+                                <TextBlock Text="&#xE738;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="White"/>
                             </Button>
-                            <TextBlock Foreground="{StaticResource TextSecondary}"
-                                       VerticalAlignment="Center" FontSize="12" Margin="4,0"
+                            <TextBlock Foreground="{StaticResource TextDim}"
+                                       VerticalAlignment="Center" FontSize="11" Margin="4,0"
                                        Text="{Binding ViewerZoom, StringFormat={}{0:P0}}"/>
-                            <Button Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding ViewerZoomInCommand}" ToolTip="Ampliar (+)"
-                                    Margin="2,0">
-                                <TextBlock Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding ViewerZoomInCommand}" ToolTip="Ampliar (+)">
+                                <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="White"/>
                             </Button>
-                            <Button Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding ViewerZoomResetCommand}" ToolTip="Reset zoom (0)"
-                                    Content="1:1" FontSize="11" Margin="2,0"/>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Command="{Binding ViewerZoomResetCommand}" ToolTip="Reset zoom (0)">
+                                <TextBlock Text="1:1" FontSize="11" Foreground="White"/>
+                            </Button>
                         </StackPanel>
 
-                        <!-- Info imatge -->
                         <TextBlock Text="{Binding ViewerInfoText}"
                                    Foreground="{StaticResource TextSecondary}"
                                    FontSize="12" VerticalAlignment="Center"/>
                     </DockPanel>
                 </Border>
 
-                <!-- Imatge principal -->
+                <!-- Imatge principal overlay -->
                 <Grid Grid.Row="1" ClipToBounds="True"
                       MouseWheel="Viewer_MouseWheel"
                       MouseLeftButtonDown="Viewer_MouseLeftButtonDown"
@@ -598,16 +767,15 @@
                       MouseMove="Viewer_MouseMove"
                       Background="Transparent">
 
-                    <!-- Navegació esquerra -->
                     <Button HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Style="{StaticResource BtnToolbar}"
+                            Style="{StaticResource BtnNav}"
                             Command="{Binding ViewerPreviousCommand}"
-                            Width="50" Height="80" Margin="12,0" Opacity="0.6"
-                            ToolTip="Anterior (←)">
-                        <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="22"/>
+                            Width="48" Height="80" Margin="16,0" Panel.ZIndex="10"
+                            ToolTip="Anterior">
+                        <TextBlock Text="&#xE76B;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20"
+                                   Foreground="White"/>
                     </Button>
 
-                    <!-- Imatge amb zoom i pan (visible quan NO és vídeo) -->
                     <Image x:Name="ViewerImageControl"
                            Source="{Binding ViewerImage}"
                            Stretch="Uniform"
@@ -623,101 +791,110 @@
                         </Image.RenderTransform>
                     </Image>
 
-                    <!-- Reproductor de vídeo overlay -->
                     <MediaElement x:Name="OverlayVideoPlayer"
                                   LoadedBehavior="Manual" UnloadedBehavior="Stop"
                                   Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}"
                                   MediaEnded="VideoPlayer_MediaEnded"/>
 
-                    <!-- Controls de vídeo overlay -->
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,20"
-                                Orientation="Horizontal"
-                                Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}">
-                        <Button x:Name="OverlayVideoPlayBtn" Style="{StaticResource BtnToolbar}"
-                                Click="VideoPlay_Click" ToolTip="Play/Pause (Espai)" Padding="10,8" Margin="2,0">
-                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="20"/>
-                        </Button>
-                        <Button Style="{StaticResource BtnToolbar}"
-                                Click="VideoStop_Click" ToolTip="Stop" Padding="10,8" Margin="2,0">
-                            <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="20"/>
-                        </Button>
-                    </StackPanel>
+                    <!-- Controls de video overlay -->
+                    <Border HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,24"
+                            Background="#60000000" CornerRadius="14" Padding="6"
+                            Visibility="{Binding IsViewingVideo, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="OverlayVideoPlayBtn" Style="{StaticResource BtnIcon}"
+                                    Click="VideoPlay_Click" ToolTip="Play/Pause (Espai)" Padding="10,8">
+                                <TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20"
+                                           Foreground="White"/>
+                            </Button>
+                            <Button Style="{StaticResource BtnIcon}"
+                                    Click="VideoStop_Click" ToolTip="Stop" Padding="10,8">
+                                <TextBlock Text="&#xE71A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20"
+                                           Foreground="White"/>
+                            </Button>
+                        </StackPanel>
+                    </Border>
 
-                    <!-- Navegació dreta -->
                     <Button HorizontalAlignment="Right" VerticalAlignment="Center"
-                            Style="{StaticResource BtnToolbar}"
+                            Style="{StaticResource BtnNav}"
                             Command="{Binding ViewerNextCommand}"
-                            Width="50" Height="80" Margin="12,0" Opacity="0.6"
-                            ToolTip="Següent (→)">
-                        <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="22"/>
+                            Width="48" Height="80" Margin="16,0" Panel.ZIndex="10"
+                            ToolTip="Seguent">
+                        <TextBlock Text="&#xE76C;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20"
+                                   Foreground="White"/>
                     </Button>
                 </Grid>
 
-                <!-- Barra inferior del visor -->
-                <Border Grid.Row="2" Background="#A0000000" Padding="12,6">
-                    <DockPanel>
-                        <TextBlock Foreground="{StaticResource TextSecondary}" FontSize="12"
-                                   VerticalAlignment="Center">
-                            <Run Text="← → navegar  |  +/- zoom  |  Tab canviar mode  |  Esc tancar"/>
-                        </TextBlock>
-                    </DockPanel>
+                <!-- Barra inferior del visor overlay -->
+                <Border Grid.Row="2" Padding="16,8">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#C0141216" Offset="0"/>
+                            <GradientStop Color="Transparent" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Foreground="{StaticResource TextDim}" FontSize="11" VerticalAlignment="Center"
+                               Opacity="0.6" HorizontalAlignment="Center">
+                        <Run Text="Navegar  |  +/- zoom  |  Tab mode  |  Esc tancar"/>
+                    </TextBlock>
                 </Border>
             </Grid>
 
-            <!-- ==================== PANELL D'IMPORTACIÓ (overlay lateral) ==================== -->
+            <!-- ==================== PANELL D'IMPORTACIO ==================== -->
             <Border x:Name="ImportPanel" Grid.ColumnSpan="3"
-                    HorizontalAlignment="Right" Width="350"
-                    Background="{StaticResource BgMedium}"
-                    BorderBrush="{StaticResource BorderColor}" BorderThickness="1,0,0,0"
+                    HorizontalAlignment="Right" Width="360"
+                    Background="{StaticResource BgSurface}"
+                    BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,0,0"
                     Visibility="{Binding IsImportPanelOpen, Converter={StaticResource BoolToVis}}">
                 <DockPanel>
-                    <!-- Capçalera -->
-                    <Border DockPanel.Dock="Top" Background="{StaticResource BgLight}" Padding="12,10">
+                    <!-- Capcalera -->
+                    <Border DockPanel.Dock="Top" Background="{StaticResource BgElevated}" Padding="16,12"
+                            BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1">
                         <DockPanel>
-                            <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
-                                    Command="{Binding ToggleImportPanelCommand}"
-                                    Padding="6,4">
-                                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
+                                    Command="{Binding ToggleImportPanelCommand}" Padding="6,4">
+                                <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                           Foreground="{StaticResource TextDim}"/>
                             </Button>
-                            <TextBlock Text="Importació MTP" FontSize="14" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="&#xE8B5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="{StaticResource Accent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="Importacio MTP" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center"/>
+                            </StackPanel>
                         </DockPanel>
                     </Border>
 
                     <!-- Contingut -->
-                    <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" Padding="12">
+                    <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" Padding="16">
                         <StackPanel>
-                            <!-- Detectar dispositius -->
-                            <TextBlock Text="Dispositiu" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextSecondary}" Margin="0,4,0,8"/>
+                            <TextBlock Text="DISPOSITIU" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextDim}" Margin="0,4,0,10"/>
 
                             <Button Content="Detectar dispositius" Style="{StaticResource BtnToolbar}"
                                     Command="{Binding DetectDevicesCommand}"
-                                    HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,10"/>
 
                             <ComboBox ItemsSource="{Binding Devices}"
                                       SelectedItem="{Binding SelectedDevice}"
                                       DisplayMemberPath="FriendlyName"
-                                      FontSize="12" Padding="8,6"
-                                      Margin="0,0,0,16"/>
+                                      FontSize="12" Padding="10,8"
+                                      Margin="0,0,0,20"/>
 
-                            <!-- Botó importar -->
                             <Button Style="{StaticResource BtnPrimary}"
                                     Command="{Binding ImportFromDeviceCommand}"
-                                    HorizontalAlignment="Stretch" Margin="0,0,0,8"
-                                    Padding="12,10">
+                                    HorizontalAlignment="Stretch" Margin="0,0,0,10"
+                                    Padding="14,12">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE8B5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                    <TextBlock Text="&#xE8B5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                                VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <TextBlock Text="Importar fotos" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
 
-                            <!-- Progrés d'importació -->
                             <ProgressBar Value="{Binding ImportProgress}" Minimum="0" Maximum="100"
-                                         Height="4" Foreground="{StaticResource Accent}"
-                                         Background="{StaticResource BgLight}" BorderThickness="0"
+                                         Height="3" Foreground="{StaticResource Accent}"
+                                         Background="{StaticResource BgElevated}" BorderThickness="0"
                                          Margin="0,8,0,4"
                                          Visibility="{Binding IsImporting, Converter={StaticResource BoolToVis}}"/>
 
@@ -726,14 +903,15 @@
                                        FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
 
                             <!-- Instruccions -->
-                            <Border Background="{StaticResource BgLight}" CornerRadius="4"
-                                    Padding="10,8" Margin="0,16,0,0">
+                            <Border Background="{StaticResource BgElevated}" CornerRadius="10"
+                                    Padding="14,12" Margin="0,20,0,0"
+                                    BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
                                 <StackPanel>
-                                    <TextBlock Text="Instruccions:" FontWeight="SemiBold"
-                                               Foreground="{StaticResource TextPrimary}" FontSize="11"
-                                               Margin="0,0,0,6"/>
-                                    <TextBlock Foreground="{StaticResource TextSecondary}" FontSize="11"
-                                               TextWrapping="Wrap">
+                                    <TextBlock Text="Instruccions" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                               Margin="0,0,0,8"/>
+                                    <TextBlock Foreground="{StaticResource TextDim}" FontSize="11"
+                                               TextWrapping="Wrap" LineHeight="20">
                                         1. Connecta l'iPhone via USB.
                                         <LineBreak/>
                                         2. Desbloqueja i prem "Confiar".
@@ -742,7 +920,7 @@
                                         <LineBreak/>
                                         4. Prem "Importar fotos".
                                         <LineBreak/>
-                                        5. Selecciona la carpeta de destí.
+                                        5. Selecciona la carpeta de desti.
                                     </TextBlock>
                                 </StackPanel>
                             </Border>
@@ -752,30 +930,37 @@
             </Border>
         </Grid>
 
-        <!-- ==================== BARRA D'ACCIONS (quan hi ha selecció) ==================== -->
-        <Border Grid.Row="2" Background="{StaticResource BgMedium}" Padding="12,8"
+        <!-- ==================== BARRA D'ACCIONS (quan hi ha seleccio) ==================== -->
+        <Border Grid.Row="2" Padding="16,10"
                 BorderBrush="{StaticResource Accent}" BorderThickness="0,2,0,0"
                 Visibility="{Binding ShowActionBar, Converter={StaticResource BoolToVis}}">
+            <Border.Background>
+                <SolidColorBrush Color="#1C1A1F" Opacity="0.95"/>
+            </Border.Background>
             <DockPanel>
-                <!-- Info selecció -->
-                <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center"
-                           Foreground="{StaticResource TextPrimary}" FontSize="12" Margin="0,0,16,0">
-                    <Run Text="{Binding SelectedPhotosCount, Mode=OneWay}" FontWeight="SemiBold"/>
-                    <Run Text="seleccionat(s)"/>
-                    <Run Text=" — "/>
-                    <Run Text="{Binding TotalSelectedSizeMB, Mode=OneWay, StringFormat={}{0:N1}}"/>
-                    <Run Text="MB"/>
-                </TextBlock>
+                <!-- Info seleccio -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <Border Background="{StaticResource AccentSubtle}" CornerRadius="6" Padding="8,4" Margin="0,0,10,0">
+                        <TextBlock Foreground="{StaticResource Accent}" FontSize="12" FontWeight="SemiBold">
+                            <Run Text="{Binding SelectedPhotosCount, Mode=OneWay}"/>
+                        </TextBlock>
+                    </Border>
+                    <TextBlock Foreground="{StaticResource TextSecondary}" FontSize="12" VerticalAlignment="Center">
+                        <Run Text="seleccionat(s)  ·  "/>
+                        <Run Text="{Binding TotalSelectedSizeMB, Mode=OneWay, StringFormat={}{0:N1}}"/>
+                        <Run Text=" MB"/>
+                    </TextBlock>
+                </StackPanel>
 
-                <!-- Botons d'acció -->
+                <!-- Botons d'accio -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <Button Style="{StaticResource BtnToolbar}"
                             Command="{Binding CopySelectedCommand}"
                             Margin="4,0" ToolTip="Copiar a una altra carpeta">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                            <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Copiar" VerticalAlignment="Center"/>
+                            <TextBlock Text="Copiar" VerticalAlignment="Center" FontSize="12"/>
                         </StackPanel>
                     </Button>
 
@@ -783,9 +968,9 @@
                             Command="{Binding MoveSelectedCommand}"
                             Margin="4,0" ToolTip="Moure a una altra carpeta">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE8DE;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                            <TextBlock Text="&#xE8DE;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Moure" VerticalAlignment="Center"/>
+                            <TextBlock Text="Moure" VerticalAlignment="Center" FontSize="12"/>
                         </StackPanel>
                     </Button>
 
@@ -793,17 +978,20 @@
                             Command="{Binding DeleteSelectedCommand}"
                             Margin="4,0" ToolTip="Eliminar seleccionats">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                            <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                        VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock Text="Eliminar" VerticalAlignment="Center"/>
+                            <TextBlock Text="Eliminar" VerticalAlignment="Center" FontSize="12"/>
                         </StackPanel>
                     </Button>
 
-                    <Border Width="1" Background="{StaticResource BorderColor}" Margin="8,2"/>
+                    <Border Width="1" Background="{StaticResource BorderSubtle}" Margin="10,4" VerticalAlignment="Stretch"/>
 
-                    <Button Content="Desseleccionar" Style="{StaticResource BtnToolbar}"
+                    <Button Style="{StaticResource BtnIcon}"
                             Command="{Binding DeselectAllCommand}"
-                            Margin="4,0" FontSize="11"/>
+                            ToolTip="Desseleccionar tot" Padding="8,6">
+                        <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                   Foreground="{StaticResource TextDim}"/>
+                    </Button>
                 </StackPanel>
 
                 <Border/>
@@ -811,13 +999,12 @@
         </Border>
 
         <!-- ==================== BARRA D'ESTAT ==================== -->
-        <Border Grid.Row="3" Background="{StaticResource BgMedium}" Padding="12,5"
-                BorderBrush="{StaticResource BorderColor}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="{StaticResource BgSurface}" Padding="16,6"
+                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
             <DockPanel>
-                <!-- Progrés de còpia -->
                 <ProgressBar DockPanel.Dock="Right" Value="{Binding CopyProgress}"
-                             Minimum="0" Maximum="100" Width="120" Height="4"
-                             Foreground="{StaticResource Accent}" Background="{StaticResource BgLight}"
+                             Minimum="0" Maximum="100" Width="120" Height="3"
+                             Foreground="{StaticResource Accent}" Background="{StaticResource BgElevated}"
                              BorderThickness="0" VerticalAlignment="Center" Margin="8,0,0,0"
                              Visibility="{Binding IsCopying, Converter={StaticResource BoolToVis}}"/>
 
@@ -825,7 +1012,7 @@
                            VerticalAlignment="Center">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding HasError}" Value="True">
                                     <Setter Property="Foreground" Value="{StaticResource DangerColor}"/>
