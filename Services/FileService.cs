@@ -1,4 +1,6 @@
 using System.IO;
+using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using iPhotoImporter.Models;
 
@@ -84,7 +86,7 @@ public class FileService
             bitmap.DecodePixelWidth = maxPixelSize;
             bitmap.EndInit();
             bitmap.Freeze();
-            return bitmap;
+            return ApplyExifRotation(bitmap, filePath);
         }
         catch
         {
@@ -107,12 +109,63 @@ public class FileService
                 bitmap.DecodePixelWidth = maxPixelWidth.Value;
             bitmap.EndInit();
             bitmap.Freeze();
-            return bitmap;
+            return ApplyExifRotation(bitmap, filePath);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Llegeix l'orientació EXIF d'una imatge i aplica la rotació/flip corresponent.
+    /// Retorna el bitmap original si no cal rotar o si no es pot llegir l'EXIF.
+    /// </summary>
+    private static BitmapSource ApplyExifRotation(BitmapSource source, string filePath)
+    {
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var frame = BitmapFrame.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+            var metadata = frame.Metadata as BitmapMetadata;
+            if (metadata == null) return source;
+
+            var orientationObj = metadata.GetQuery("System.Photo.Orientation")
+                              ?? metadata.GetQuery("/app1/ifd/{ushort=274}");
+            if (orientationObj == null) return source;
+
+            var orientation = Convert.ToUInt16(orientationObj);
+
+            Transform? transform = orientation switch
+            {
+                2 => new ScaleTransform(-1, 1),     // Flip horitzontal
+                3 => new RotateTransform(180),       // Rotar 180°
+                4 => new ScaleTransform(1, -1),      // Flip vertical
+                5 => CombineTransforms(new RotateTransform(90), new ScaleTransform(-1, 1)),
+                6 => new RotateTransform(90),        // Rotar 90° horari
+                7 => CombineTransforms(new RotateTransform(270), new ScaleTransform(-1, 1)),
+                8 => new RotateTransform(270),       // Rotar 270° horari
+                _ => null
+            };
+
+            if (transform == null) return source;
+
+            var rotated = new TransformedBitmap(source, transform);
+            rotated.Freeze();
+            return rotated;
+        }
+        catch
+        {
+            return source;
+        }
+    }
+
+    private static Transform CombineTransforms(Transform t1, Transform t2)
+    {
+        var group = new TransformGroup();
+        group.Children.Add(t1);
+        group.Children.Add(t2);
+        return group;
     }
 
     /// <summary>
