@@ -96,6 +96,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _viewerVideoPath;
 
+    [ObservableProperty]
+    private int _viewerVideoRotation;
+
     /// <summary>Indica si hi ha una imatge al visor</summary>
     public bool HasViewerImage => IsViewerOpen && ViewerImage != null;
 
@@ -393,8 +396,12 @@ public partial class MainViewModel : ObservableObject
 
         if (item.IsVideo)
         {
-            // Vídeo: mostrar amb MediaElement
+            // Vídeo: mostrar amb MediaElement, aplicant la rotació si cal
             IsViewingVideo = true;
+            // Llegir la rotació si encara no la tenim
+            if (item.VideoRotation == 0)
+                item.VideoRotation = FileService.GetVideoRotation(item.FullPath);
+            ViewerVideoRotation = item.VideoRotation;
             ViewerVideoPath = item.FullPath;
             ViewerImage = item.Thumbnail; // Mostrar thumbnail com a placeholder
             UpdateViewerInfo(item);
@@ -404,6 +411,7 @@ public partial class MainViewModel : ObservableObject
         // Imatge
         IsViewingVideo = false;
         ViewerVideoPath = null;
+        ViewerVideoRotation = 0;
 
         // 1. Mostrar miniatura immediatament (render progressiu)
         if (item.Thumbnail != null)

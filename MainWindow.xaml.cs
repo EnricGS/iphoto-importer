@@ -295,11 +295,13 @@ public partial class MainWindow : Window
 
     private void LoadVideoInActivePlayer()
     {
-        // Aturar qualsevol vídeo anterior
+        // Aturar qualsevol vídeo anterior i netejar rotació
         SplitVideoPlayer.Stop();
         SplitVideoPlayer.Source = null;
+        SplitVideoPlayer.LayoutTransform = null;
         OverlayVideoPlayer.Stop();
         OverlayVideoPlayer.Source = null;
+        OverlayVideoPlayer.LayoutTransform = null;
         _isVideoPlaying = false;
 
         var path = _viewModel.ViewerVideoPath;
@@ -307,6 +309,13 @@ public partial class MainWindow : Window
 
         var player = GetActiveVideoPlayer();
         if (player == null) return;
+
+        // Aplicar rotació del vídeo si cal
+        var rotation = _viewModel.ViewerVideoRotation;
+        if (rotation != 0)
+        {
+            player.LayoutTransform = new System.Windows.Media.RotateTransform(rotation);
+        }
 
         player.Source = new Uri(path, UriKind.Absolute);
         player.Play();

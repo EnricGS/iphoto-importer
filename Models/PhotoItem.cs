@@ -55,6 +55,9 @@ public class PhotoItem : INotifyPropertyChanged
         set => SetField(ref _thumbnail, value);
     }
 
+    /// <summary>Rotació del vídeo en graus (0, 90, 180, 270)</summary>
+    public int VideoRotation { get; set; }
+
     /// <summary>Indica si és un vídeo</summary>
     public bool IsVideo => FileName.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
                         || FileName.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)

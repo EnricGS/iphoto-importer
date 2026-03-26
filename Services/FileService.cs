@@ -50,6 +50,7 @@ public class FileService
                 if (!AllExtensions.Contains(file.Extension)) continue;
                 scanned++;
 
+                var isVideo = VideoExtensions.Contains(file.Extension);
                 var photo = new PhotoItem
                 {
                     FullPath = file.FullName,
@@ -58,6 +59,10 @@ public class FileService
                     SizeBytes = file.Length,
                     IsLocal = true
                 };
+
+                // Llegir la rotació del vídeo durant l'escaneig
+                if (isVideo)
+                    photo.VideoRotation = GetVideoRotation(file.FullName);
 
                 results.Add(photo);
 
@@ -213,6 +218,85 @@ public class FileService
         }
         catch { }
         return Rotation.Rotate0;
+    }
+
+    /// <summary>
+    /// Llegeix la rotació d'un fitxer de vídeo MP4/MOV des de la matriu de transformació
+    /// del track header (tkhd) dins l'estructura de boxes del fitxer.
+    /// Retorna els graus de rotació (0, 90, 180, 270).
+    /// </summary>
+    public static int GetVideoRotation(string filePath)
+    {
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            // Llegim fins a 256KB per trobar el tkhd box
+            var bufferSize = (int)Math.Min(262144, stream.Length);
+            var buffer = new byte[bufferSize];
+            _ = stream.Read(buffer, 0, buffer.Length);
+
+            // Buscar el box 'tkhd' (track header) que conté la matriu de rotació
+            // Format MP4: cada box té 4 bytes mida + 4 bytes tipus
+            return FindTkhdRotation(buffer);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Busca el box tkhd dins el buffer i extreu la rotació de la matriu de transformació.
+    /// La matriu és 3x3 de fixed-point 16.16, situada a l'offset 40 (v0) o 48 (v1) del tkhd.
+    /// </summary>
+    private static int FindTkhdRotation(byte[] buffer)
+    {
+        // Buscar "tkhd" dins el buffer (pot estar anidat dins moov/trak)
+        for (int i = 0; i < buffer.Length - 4; i++)
+        {
+            if (buffer[i] == (byte)'t' && buffer[i + 1] == (byte)'k' &&
+                buffer[i + 2] == (byte)'h' && buffer[i + 3] == (byte)'d')
+            {
+                // El tipus està als bytes i-4..i-1 (mida) i i..i+3 (tipus)
+                // Però aquí estem al tipus directament.
+                // Versió del tkhd: byte a offset i+4
+                int tkhdStart = i + 4; // Inici del contingut del tkhd (després del tipus)
+                if (tkhdStart + 84 > buffer.Length) continue;
+
+                byte version = buffer[tkhdStart];
+                // La matriu comença a offset 40 (v0) o 52 (v1) des del tkhdStart
+                int matrixOffset = tkhdStart + (version == 0 ? 40 : 52);
+                if (matrixOffset + 36 > buffer.Length) continue;
+
+                // La matriu és 3x3 de 32 bits (fixed-point 16.16)
+                // a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4]
+                // Rotació es dedueix de a i b
+                int a = ReadBigEndianInt32(buffer, matrixOffset);        // matrix[0][0]
+                int b = ReadBigEndianInt32(buffer, matrixOffset + 4);    // matrix[0][1]
+
+                // Convertir de fixed-point 16.16 a double
+                double aVal = a / 65536.0;
+                double bVal = b / 65536.0;
+
+                // Calcular l'angle de rotació
+                double angle = Math.Atan2(bVal, aVal) * (180.0 / Math.PI);
+                int rotation = ((int)Math.Round(angle) + 360) % 360;
+
+                // Normalitzar a 0, 90, 180, 270
+                if (rotation >= 45 && rotation < 135) return 90;
+                if (rotation >= 135 && rotation < 225) return 180;
+                if (rotation >= 225 && rotation < 315) return 270;
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    /// <summary>Llegeix un int32 big-endian des d'un buffer.</summary>
+    private static int ReadBigEndianInt32(byte[] buffer, int offset)
+    {
+        return (buffer[offset] << 24) | (buffer[offset + 1] << 16) |
+               (buffer[offset + 2] << 8) | buffer[offset + 3];
     }
 
     /// <summary>
