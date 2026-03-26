@@ -44,11 +44,18 @@ public partial class MainViewModel : ObservableObject
 
     // === Propietats de la graella ===
 
-    /// <summary>Col·lecció central de fotos carregades</summary>
+    /// <summary>Col·lecció central de totes les fotos carregades (sense filtrar)</summary>
+    private readonly List<PhotoItem> _allPhotos = [];
+
+    /// <summary>Col·lecció filtrada de fotos mostrades a la graella</summary>
     public ObservableCollection<PhotoItem> Photos { get; } = [];
 
     /// <summary>Conjunt de fotos seleccionades</summary>
     public ObservableCollection<PhotoItem> SelectedPhotos { get; } = [];
+
+    /// <summary>Filtre de tipus: 0=Tot, 1=Fotos, 2=Vídeos</summary>
+    [ObservableProperty]
+    private int _filterType;
 
     [ObservableProperty]
     private int _selectedPhotosCount;
@@ -146,11 +153,52 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Event per notificar al code-behind que cal fer scroll a la miniatura activa.</summary>
     public event Action<int>? ScrollToThumbnailRequested;
 
+    /// <summary>Comptadors per tipus (per mostrar a la UI)</summary>
+    [ObservableProperty]
+    private int _photoCount;
+
+    [ObservableProperty]
+    private int _videoCount;
+
     // === Constructor ===
 
     public MainViewModel()
     {
         SelectedPhotos.CollectionChanged += (_, _) => UpdateSelectionStats();
+    }
+
+    /// <summary>
+    /// Quan canvia el filtre, actualitzem la col·lecció visible.
+    /// </summary>
+    partial void OnFilterTypeChanged(int value)
+    {
+        ApplyFilter();
+    }
+
+    /// <summary>
+    /// Aplica el filtre de tipus a la col·lecció Photos.
+    /// </summary>
+    private void ApplyFilter()
+    {
+        Photos.Clear();
+        SelectedPhotos.Clear();
+
+        var filtered = FilterType switch
+        {
+            1 => _allPhotos.Where(p => !p.IsVideo),
+            2 => _allPhotos.Where(p => p.IsVideo),
+            _ => _allPhotos.AsEnumerable()
+        };
+
+        foreach (var item in filtered)
+        {
+            item.PropertyChanged -= OnPhotoPropertyChanged;
+            item.PropertyChanged += OnPhotoPropertyChanged;
+            item.IsSelected = false;
+            Photos.Add(item);
+        }
+
+        StatusMessage = $"{Photos.Count} imatge(s) mostrada(es) de {_allPhotos.Count} totals";
     }
 
     /// <summary>
@@ -227,6 +275,7 @@ public partial class MainViewModel : ObservableObject
         // Tancar el visor si estava obert
         CloseViewer();
 
+        _allPhotos.Clear();
         Photos.Clear();
         SelectedPhotos.Clear();
 
@@ -242,11 +291,12 @@ public partial class MainViewModel : ObservableObject
             // Ordenar per data (més recents primer)
             items.Sort((a, b) => (b.DateTaken ?? DateTime.MinValue).CompareTo(a.DateTaken ?? DateTime.MinValue));
 
-            foreach (var item in items)
-            {
-                item.PropertyChanged += OnPhotoPropertyChanged;
-                Photos.Add(item);
-            }
+            _allPhotos.AddRange(items);
+            PhotoCount = _allPhotos.Count(p => !p.IsVideo);
+            VideoCount = _allPhotos.Count(p => p.IsVideo);
+
+            // Aplicar el filtre actual
+            ApplyFilter();
 
             StatusMessage = $"{Photos.Count} imatge(s) trobada(es) a {Path.GetFileName(folderPath)}";
 

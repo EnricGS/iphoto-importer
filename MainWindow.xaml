@@ -220,6 +220,44 @@
                                        VerticalAlignment="Center" Margin="4,0,0,0"/>
                         </StackPanel>
 
+                        <!-- Filtre per tipus -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,16,0">
+                            <TextBlock Text="&#xE71D;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                       Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <RadioButton Content="Tot" IsChecked="True" GroupName="TypeFilter"
+                                         Foreground="{StaticResource TextPrimary}" FontSize="11"
+                                         VerticalAlignment="Center" Margin="0,0,6,0"
+                                         Checked="FilterAll_Checked"/>
+                            <RadioButton x:Name="FilterPhotosRadio" GroupName="TypeFilter"
+                                         Foreground="{StaticResource TextPrimary}" FontSize="11"
+                                         VerticalAlignment="Center" Margin="0,0,6,0"
+                                         Checked="FilterPhotos_Checked">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" FontSize="10"
+                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                    <TextBlock VerticalAlignment="Center">
+                                        <Run Text="Fotos ("/>
+                                        <Run Text="{Binding PhotoCount, Mode=OneWay}"/>
+                                        <Run Text=")"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="FilterVideosRadio" GroupName="TypeFilter"
+                                         Foreground="{StaticResource TextPrimary}" FontSize="11"
+                                         VerticalAlignment="Center" Margin="0,0,6,0"
+                                         Checked="FilterVideos_Checked">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE714;" FontFamily="Segoe MDL2 Assets" FontSize="10"
+                                               VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                    <TextBlock VerticalAlignment="Center">
+                                        <Run Text="Vídeos ("/>
+                                        <Run Text="{Binding VideoCount, Mode=OneWay}"/>
+                                        <Run Text=")"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+
                         <!-- Selecció ràpida -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,16,0">
                             <Button Content="Sel. tot" Style="{StaticResource BtnToolbar}"

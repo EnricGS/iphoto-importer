@@ -352,4 +352,10 @@ public partial class MainWindow : Window
     {
         _isVideoPlaying = false;
     }
+
+    // === Filtre per tipus ===
+
+    private void FilterAll_Checked(object sender, RoutedEventArgs e) => _viewModel.FilterType = 0;
+    private void FilterPhotos_Checked(object sender, RoutedEventArgs e) => _viewModel.FilterType = 1;
+    private void FilterVideos_Checked(object sender, RoutedEventArgs e) => _viewModel.FilterType = 2;
 }
