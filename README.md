@@ -13,6 +13,10 @@ Aplicació d'escriptori per visualitzar, gestionar i importar fotos i vídeos. I
 - 2026-03-25 - Phase 6 completada: poliment (EXIF bàsic via BitmapDecoder, installer actualitzat)
 - 2026-03-25 - en produccio
 - 2026-03-26 - Mode split/toggle: visor lateral simultani (estil Lightroom) amb Tab/F5 per canviar de mode, sincronització graella↔visor, GridSplitter redimensionable
+- 2026-03-26 - Rotació de vídeos: lectura de metadades de rotació (tkhd matrix) de fitxers MP4/MOV i aplicació de RotateTransform al MediaElement
+- 2026-03-26 - Filtre per tipus: selector de radio buttons (Tot/Fotos/Vídeos) amb comptadors a la barra de controls de la graella
+- 2026-03-26 - Miniatures de vídeo: generació via Windows Shell IShellItemImageFactory (COM interop), sense dependències externes
+- 2026-03-26 - Redisseny visual complet: tema fosc càlid amb accent ambre/terracota, cantonades arrodonides, icones Segoe Fluent, gradient overlays, tipografia moderna
 
 ## Requisits
 
