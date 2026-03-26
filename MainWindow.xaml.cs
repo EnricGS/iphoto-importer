@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private double _dragStartOffsetX;
     private double _dragStartOffsetY;
+    private double _savedScrollOffset;
 
     public MainWindow()
     {
@@ -40,6 +41,22 @@ public partial class MainWindow : Window
         if (e.PropertyName == nameof(MainViewModel.IsSplitViewerVisible))
         {
             UpdateSplitLayout();
+        }
+        // Guardar posició del scroll quan s'obre l'overlay, restaurar al tancar
+        else if (e.PropertyName == nameof(MainViewModel.IsOverlayViewerVisible))
+        {
+            if (_viewModel.IsOverlayViewerVisible)
+            {
+                _savedScrollOffset = ThumbnailScrollViewer.VerticalOffset;
+            }
+            else
+            {
+                // Restaurar scroll al tancar l'overlay
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ThumbnailScrollViewer.ScrollToVerticalOffset(_savedScrollOffset);
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         }
     }
 
