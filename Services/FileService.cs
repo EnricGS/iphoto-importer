@@ -1,4 +1,7 @@
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using iPhotoImporter.Models;
 
@@ -395,5 +398,88 @@ public class FileService
         } while (File.Exists(destPath));
 
         return destPath;
+    }
+
+    // === Miniatures de vídeo via Windows Shell (IShellItemImageFactory) ===
+
+    /// <summary>
+    /// Genera una miniatura d'un fitxer de vídeo usant la API de Windows Shell.
+    /// Funciona sense dependències externes per a qualsevol format suportat per Windows.
+    /// </summary>
+    public static BitmapSource? GenerateVideoThumbnail(string filePath, int maxPixelSize = 256)
+    {
+        try
+        {
+            var hr = SHCreateItemFromParsingName(filePath, IntPtr.Zero,
+                typeof(IShellItemImageFactory).GUID, out var factory);
+            if (hr != 0 || factory == null) return null;
+
+            try
+            {
+                var size = new NativeSize { Width = maxPixelSize, Height = maxPixelSize };
+                hr = factory.GetImage(size, SIIGBF.SIIGBF_THUMBNAILONLY | SIIGBF.SIIGBF_BIGGERSIZEOK, out var hBitmap);
+
+                // Si no hi ha thumbnail precalculat, provar amb resizeToFit
+                if (hr != 0)
+                    hr = factory.GetImage(size, SIIGBF.SIIGBF_RESIZETOFIT, out hBitmap);
+
+                if (hr != 0) return null;
+
+                try
+                {
+                    var source = Imaging.CreateBitmapSourceFromHBitmap(
+                        hBitmap, IntPtr.Zero, Int32Rect.Empty,
+                        BitmapSizeOptions.FromEmptyOptions());
+                    source.Freeze();
+                    return source;
+                }
+                finally
+                {
+                    DeleteObject(hBitmap);
+                }
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(factory);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // COM Interop per IShellItemImageFactory
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHCreateItemFromParsingName(
+        string pszPath, IntPtr pbc, [In] Guid riid, [MarshalAs(UnmanagedType.Interface)] out IShellItemImageFactory ppv);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(IntPtr hObject);
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b")]
+    private interface IShellItemImageFactory
+    {
+        [PreserveSig]
+        int GetImage(NativeSize size, SIIGBF flags, out IntPtr phbm);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeSize
+    {
+        public int Width;
+        public int Height;
+    }
+
+    [Flags]
+    private enum SIIGBF
+    {
+        SIIGBF_RESIZETOFIT = 0x00000000,
+        SIIGBF_BIGGERSIZEOK = 0x00000001,
+        SIIGBF_THUMBNAILONLY = 0x00000004,
     }
 }

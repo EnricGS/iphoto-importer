@@ -56,11 +56,35 @@ public class ThumbnailCacheService
             }
         }
 
-        // 3. Generar nova miniatura
+        // 3. Generar nova miniatura (fotos o vídeos)
         thumbnail = await Task.Run(() =>
         {
             ct.ThrowIfCancellationRequested();
-            var thumb = FileService.GenerateThumbnail(filePath, ThumbnailMaxSize);
+            var ext = Path.GetExtension(filePath);
+            var isVideo = ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                       || ext.Equals(".mov", StringComparison.OrdinalIgnoreCase)
+                       || ext.Equals(".avi", StringComparison.OrdinalIgnoreCase)
+                       || ext.Equals(".mkv", StringComparison.OrdinalIgnoreCase);
+
+            BitmapSource? thumb;
+            if (isVideo)
+            {
+                // COM interop requereix thread STA
+                BitmapSource? videoThumb = null;
+                var t = new Thread(() =>
+                {
+                    videoThumb = FileService.GenerateVideoThumbnail(filePath, ThumbnailMaxSize);
+                });
+                t.SetApartmentState(ApartmentState.STA);
+                t.Start();
+                t.Join();
+                thumb = videoThumb;
+            }
+            else
+            {
+                thumb = FileService.GenerateThumbnail(filePath, ThumbnailMaxSize);
+            }
+
             if (thumb != null)
                 SaveToDisk(thumb, cachePath);
             return thumb;
