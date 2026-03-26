@@ -1,6 +1,4 @@
 using System.IO;
-using System.Windows;
-using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using iPhotoImporter.Models;
 
@@ -79,14 +77,16 @@ public class FileService
     {
         try
         {
+            var rotation = GetExifRotation(filePath);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
             bitmap.UriSource = new Uri(filePath, UriKind.Absolute);
             bitmap.DecodePixelWidth = maxPixelSize;
+            bitmap.Rotation = rotation;
             bitmap.EndInit();
             bitmap.Freeze();
-            return ApplyExifRotation(bitmap, filePath);
+            return bitmap;
         }
         catch
         {
@@ -101,15 +101,17 @@ public class FileService
     {
         try
         {
+            var rotation = GetExifRotation(filePath);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
             bitmap.UriSource = new Uri(filePath, UriKind.Absolute);
             if (maxPixelWidth.HasValue)
                 bitmap.DecodePixelWidth = maxPixelWidth.Value;
+            bitmap.Rotation = rotation;
             bitmap.EndInit();
             bitmap.Freeze();
-            return ApplyExifRotation(bitmap, filePath);
+            return bitmap;
         }
         catch
         {
@@ -118,54 +120,99 @@ public class FileService
     }
 
     /// <summary>
-    /// Llegeix l'orientació EXIF d'una imatge i aplica la rotació/flip corresponent.
-    /// Retorna el bitmap original si no cal rotar o si no es pot llegir l'EXIF.
+    /// Llegeix l'orientació EXIF directament dels bytes del fitxer JPEG.
+    /// Retorna la rotació WPF corresponent. Molt més fiable que BitmapMetadata.
     /// </summary>
-    private static BitmapSource ApplyExifRotation(BitmapSource source, string filePath)
+    private static Rotation GetExifRotation(string filePath)
     {
         try
         {
             using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var frame = BitmapFrame.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
-            var metadata = frame.Metadata as BitmapMetadata;
-            if (metadata == null) return source;
+            // Llegim només els primers 64KB, suficient per a l'EXIF header
+            var buffer = new byte[Math.Min(65536, stream.Length)];
+            _ = stream.Read(buffer, 0, buffer.Length);
 
-            var orientationObj = metadata.GetQuery("System.Photo.Orientation")
-                              ?? metadata.GetQuery("/app1/ifd/{ushort=274}");
-            if (orientationObj == null) return source;
+            // Buscar el marcador EXIF APP1 (0xFFE1)
+            int offset = 0;
+            if (buffer.Length < 4 || buffer[0] != 0xFF || buffer[1] != 0xD8) // No és JPEG
+                return Rotation.Rotate0;
 
-            var orientation = Convert.ToUInt16(orientationObj);
-
-            Transform? transform = orientation switch
+            offset = 2;
+            while (offset < buffer.Length - 4)
             {
-                2 => new ScaleTransform(-1, 1),     // Flip horitzontal
-                3 => new RotateTransform(180),       // Rotar 180°
-                4 => new ScaleTransform(1, -1),      // Flip vertical
-                5 => CombineTransforms(new RotateTransform(90), new ScaleTransform(-1, 1)),
-                6 => new RotateTransform(90),        // Rotar 90° horari
-                7 => CombineTransforms(new RotateTransform(270), new ScaleTransform(-1, 1)),
-                8 => new RotateTransform(270),       // Rotar 270° horari
-                _ => null
-            };
+                if (buffer[offset] != 0xFF) break;
+                byte marker = buffer[offset + 1];
+                if (marker == 0xE1) // APP1 = EXIF
+                {
+                    offset += 2;
+                    int segmentLen = (buffer[offset] << 8) | buffer[offset + 1];
+                    offset += 2;
 
-            if (transform == null) return source;
+                    // Verificar "Exif\0\0"
+                    if (offset + 6 > buffer.Length) return Rotation.Rotate0;
+                    if (buffer[offset] != 0x45 || buffer[offset + 1] != 0x78 ||
+                        buffer[offset + 2] != 0x69 || buffer[offset + 3] != 0x66)
+                        return Rotation.Rotate0;
 
-            var rotated = new TransformedBitmap(source, transform);
-            rotated.Freeze();
-            return rotated;
+                    int tiffStart = offset + 6;
+                    if (tiffStart + 8 > buffer.Length) return Rotation.Rotate0;
+
+                    // Endianness
+                    bool littleEndian = buffer[tiffStart] == 0x49; // "II"
+
+                    int ReadUInt16(int pos)
+                    {
+                        if (pos + 2 > buffer.Length) return 0;
+                        return littleEndian
+                            ? buffer[pos] | (buffer[pos + 1] << 8)
+                            : (buffer[pos] << 8) | buffer[pos + 1];
+                    }
+
+                    int ReadUInt32(int pos)
+                    {
+                        if (pos + 4 > buffer.Length) return 0;
+                        return littleEndian
+                            ? buffer[pos] | (buffer[pos + 1] << 8) | (buffer[pos + 2] << 16) | (buffer[pos + 3] << 24)
+                            : (buffer[pos] << 24) | (buffer[pos + 1] << 16) | (buffer[pos + 2] << 8) | buffer[pos + 3];
+                    }
+
+                    int ifdOffset = ReadUInt32(tiffStart + 4);
+                    int ifdPos = tiffStart + ifdOffset;
+                    if (ifdPos + 2 > buffer.Length) return Rotation.Rotate0;
+
+                    int entryCount = ReadUInt16(ifdPos);
+                    ifdPos += 2;
+
+                    for (int i = 0; i < entryCount; i++)
+                    {
+                        int entryPos = ifdPos + i * 12;
+                        if (entryPos + 12 > buffer.Length) break;
+
+                        int tag = ReadUInt16(entryPos);
+                        if (tag == 0x0112) // Orientation tag
+                        {
+                            int value = ReadUInt16(entryPos + 8);
+                            return value switch
+                            {
+                                3 => Rotation.Rotate180,
+                                6 => Rotation.Rotate90,
+                                8 => Rotation.Rotate270,
+                                _ => Rotation.Rotate0
+                            };
+                        }
+                    }
+                    return Rotation.Rotate0;
+                }
+
+                // Saltar segment
+                offset += 2;
+                if (offset + 2 > buffer.Length) break;
+                int len = (buffer[offset] << 8) | buffer[offset + 1];
+                offset += len;
+            }
         }
-        catch
-        {
-            return source;
-        }
-    }
-
-    private static Transform CombineTransforms(Transform t1, Transform t2)
-    {
-        var group = new TransformGroup();
-        group.Children.Add(t1);
-        group.Children.Add(t2);
-        return group;
+        catch { }
+        return Rotation.Rotate0;
     }
 
     /// <summary>
