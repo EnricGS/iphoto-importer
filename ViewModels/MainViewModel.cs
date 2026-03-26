@@ -64,9 +64,11 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasViewerImage))]
+    [NotifyPropertyChangedFor(nameof(IsOverlayViewerVisible))]
     private bool _isViewerOpen;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSplitViewerVisible))]
     private PhotoItem? _viewerCurrentItem;
 
     [ObservableProperty]
@@ -110,11 +112,69 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _showActionBar;
 
+    /// <summary>Mode dividit (split): graella + visor al costat. Si és false, mode alternat (toggle/overlay).</summary>
+    [ObservableProperty]
+    private bool _isSplitMode;
+
+    /// <summary>Text descriptiu del mode actual per mostrar a la UI.</summary>
+    public string ViewModeLabel => IsSplitMode ? "Split" : "Toggle";
+
+    /// <summary>Indica si el visor lateral (split) ha de ser visible.</summary>
+    public bool IsSplitViewerVisible => IsSplitMode && ViewerCurrentItem != null;
+
+    /// <summary>Indica si el visor overlay (toggle) ha de ser visible.</summary>
+    public bool IsOverlayViewerVisible => !IsSplitMode && IsViewerOpen;
+
+    /// <summary>Event per notificar al code-behind que cal fer scroll a la miniatura activa.</summary>
+    public event Action<int>? ScrollToThumbnailRequested;
+
     // === Constructor ===
 
     public MainViewModel()
     {
         SelectedPhotos.CollectionChanged += (_, _) => UpdateSelectionStats();
+    }
+
+    /// <summary>
+    /// Quan canvia el mode split, actualitzem les propietats derivades de visibilitat.
+    /// </summary>
+    partial void OnIsSplitModeChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ViewModeLabel));
+        OnPropertyChanged(nameof(IsSplitViewerVisible));
+        OnPropertyChanged(nameof(IsOverlayViewerVisible));
+
+        if (value)
+        {
+            // Canviar a mode split: si el visor overlay estava obert, mantenir la imatge
+            // però tancar l'overlay i mostrar-la al panell lateral
+            if (IsViewerOpen)
+            {
+                IsViewerOpen = false;
+                // ViewerCurrentItem i ViewerImage ja estan carregats
+                OnPropertyChanged(nameof(IsSplitViewerVisible));
+                OnPropertyChanged(nameof(IsOverlayViewerVisible));
+            }
+        }
+        else
+        {
+            // Canviar a mode toggle: si hi ha imatge al visor split, obrir l'overlay
+            if (ViewerCurrentItem != null)
+            {
+                IsViewerOpen = true;
+                OnPropertyChanged(nameof(IsOverlayViewerVisible));
+            }
+            OnPropertyChanged(nameof(IsSplitViewerVisible));
+        }
+    }
+
+    /// <summary>
+    /// Comanda per alternar entre mode split i toggle (Tab o F5).
+    /// </summary>
+    [RelayCommand]
+    private void ToggleViewMode()
+    {
+        IsSplitMode = !IsSplitMode;
     }
 
     // === Comandes de carpeta ===
@@ -238,8 +298,19 @@ public partial class MainViewModel : ObservableObject
         if (index < 0) return;
 
         ViewerIndex = index;
-        IsViewerOpen = true;
-        LoadViewerImage(item);
+
+        if (IsSplitMode)
+        {
+            // En mode split, no obrim overlay; carreguem la imatge al panell lateral
+            LoadViewerImage(item);
+            OnPropertyChanged(nameof(IsSplitViewerVisible));
+        }
+        else
+        {
+            // Mode toggle: obrir visor com a overlay
+            IsViewerOpen = true;
+            LoadViewerImage(item);
+        }
     }
 
     [RelayCommand]
@@ -257,6 +328,9 @@ public partial class MainViewModel : ObservableObject
         // Treure el ressaltat de tots els elements
         foreach (var p in Photos)
             p.IsHighlighted = false;
+
+        OnPropertyChanged(nameof(IsSplitViewerVisible));
+        OnPropertyChanged(nameof(IsOverlayViewerVisible));
     }
 
     [RelayCommand]
@@ -289,6 +363,10 @@ public partial class MainViewModel : ObservableObject
         ViewerOffsetY = 0;
 
         LoadViewerImage(Photos[index]);
+
+        // En mode split, notificar que cal fer scroll a la miniatura
+        if (IsSplitMode)
+            ScrollToThumbnailRequested?.Invoke(index);
     }
 
     private void LoadViewerImage(PhotoItem item)
@@ -810,7 +888,7 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
-            // Clic simple sense modificador: obrir al visor
+            // Clic simple sense modificador: obrir al visor (tant en split com en toggle)
             OpenViewer(item);
         }
     }

@@ -12,6 +12,7 @@ Aplicació d'escriptori per visualitzar, gestionar i importar fotos i vídeos. I
 - 2026-03-25 - Phase 5 completada: integració d'importació (MTP com a mòdul/panell lateral, flux importar→revisar→organitzar)
 - 2026-03-25 - Phase 6 completada: poliment (EXIF bàsic via BitmapDecoder, installer actualitzat)
 - 2026-03-25 - en produccio
+- 2026-03-26 - Mode split/toggle: visor lateral simultani (estil Lightroom) amb Tab/F5 per canviar de mode, sincronització graella↔visor, GridSplitter redimensionable
 
 ## Requisits
 
@@ -83,6 +84,7 @@ app.ico                              → Icona de l'aplicació
 | `+` `-` | Zoom al visor |
 | `0` | Reset zoom |
 | `F` | Ajustar a pantalla |
+| `Tab` / `F5` | Canviar mode split/toggle |
 | `Esc` | Tancar visor |
 
 ## Dependències

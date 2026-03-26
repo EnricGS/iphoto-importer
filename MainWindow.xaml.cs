@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using iPhotoImporter.Models;
 using iPhotoImporter.ViewModels;
@@ -22,6 +24,59 @@ public partial class MainWindow : Window
         InitializeComponent();
         _viewModel = new MainViewModel();
         DataContext = _viewModel;
+
+        // Subscriure's als canvis de mode per actualitzar les columnes del layout
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+        // Subscriure's a l'event de scroll automàtic cap a la miniatura activa
+        _viewModel.ScrollToThumbnailRequested += OnScrollToThumbnailRequested;
+    }
+
+    /// <summary>
+    /// Actualitza les columnes del Grid quan canvia el mode split/toggle.
+    /// </summary>
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.IsSplitViewerVisible))
+        {
+            UpdateSplitLayout();
+        }
+    }
+
+    /// <summary>
+    /// Ajusta les amplades de les columnes segons si el visor split és visible.
+    /// </summary>
+    private void UpdateSplitLayout()
+    {
+        if (_viewModel.IsSplitViewerVisible)
+        {
+            // Mode split amb visor visible: graella ~40%, separador, visor ~60%
+            GridColumn.Width = new GridLength(2, GridUnitType.Star);
+            SplitterColumn.Width = new GridLength(4);
+            ViewerColumn.Width = new GridLength(3, GridUnitType.Star);
+        }
+        else
+        {
+            // Mode toggle o split sense visor: graella ocupa tot
+            GridColumn.Width = new GridLength(1, GridUnitType.Star);
+            SplitterColumn.Width = new GridLength(0);
+            ViewerColumn.Width = new GridLength(0);
+        }
+    }
+
+    /// <summary>
+    /// Fa scroll a la miniatura indicada per índex dins del ScrollViewer.
+    /// </summary>
+    private void OnScrollToThumbnailRequested(int index)
+    {
+        if (index < 0 || index >= _viewModel.Photos.Count) return;
+
+        // Buscar l'element visual corresponent al ItemsControl
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            var container = PhotoGrid.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
+            container?.BringIntoView();
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     /// <summary>
@@ -29,8 +84,24 @@ public partial class MainWindow : Window
     /// </summary>
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
-        // Visor obert: dreceres de navegació
-        if (_viewModel.IsViewerOpen)
+        // Tab i F5: canviar mode split/toggle (sempre disponible)
+        if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            _viewModel.ToggleViewModeCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.F5)
+        {
+            _viewModel.ToggleViewModeCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        // Visor obert (overlay o split): dreceres de navegació
+        var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
+        if (viewerActive)
         {
             switch (e.Key)
             {
@@ -66,7 +137,10 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     break;
             }
-            return;
+
+            // En mode split, no bloquejar les dreceres de graella (Ctrl+A, etc.)
+            if (_viewModel.IsOverlayViewerVisible)
+                return;
         }
 
         // Graella: dreceres generals
@@ -113,7 +187,9 @@ public partial class MainWindow : Window
     /// </summary>
     private void Viewer_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!_viewModel.IsViewerOpen) return;
+        // Funciona tant en overlay com en split
+        var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
+        if (!viewerActive) return;
 
         if (e.Delta > 0)
             _viewModel.ViewerZoomInCommand.Execute(null);
@@ -128,10 +204,11 @@ public partial class MainWindow : Window
     /// </summary>
     private void Viewer_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_viewModel.IsViewerOpen) return;
+        var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
+        if (!viewerActive) return;
 
-        // Doble clic per tancar el visor
-        if (e.ClickCount == 2)
+        // Doble clic per tancar el visor (només en mode overlay)
+        if (e.ClickCount == 2 && _viewModel.IsOverlayViewerVisible)
         {
             _viewModel.CloseViewerCommand.Execute(null);
             e.Handled = true;

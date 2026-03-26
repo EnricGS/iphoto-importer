@@ -109,6 +109,17 @@
 
                 <!-- Botons dreta -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <!-- Botó canvi de mode split/toggle -->
+                    <Button Style="{StaticResource BtnToolbar}"
+                            Command="{Binding ToggleViewModeCommand}"
+                            Margin="4,0" ToolTip="Canviar mode de visualització (Tab / F5)">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="{Binding ViewModeLabel}" VerticalAlignment="Center" FontSize="11"/>
+                        </StackPanel>
+                    </Button>
+
                     <!-- Botó importar -->
                     <Button Style="{StaticResource BtnToolbar}"
                             Command="{Binding ToggleImportPanelCommand}"
@@ -143,8 +154,17 @@
 
         <!-- ==================== CONTINGUT PRINCIPAL ==================== -->
         <Grid Grid.Row="1">
-            <!-- Capa base: Graella de miniatures -->
-            <Grid>
+            <Grid.ColumnDefinitions>
+                <!-- Graella de miniatures: ocupa tot en mode toggle, ~40% en split -->
+                <ColumnDefinition x:Name="GridColumn" Width="*"/>
+                <!-- Separador entre graella i visor (només visible en split) -->
+                <ColumnDefinition x:Name="SplitterColumn" Width="0"/>
+                <!-- Visor lateral (només visible en split) -->
+                <ColumnDefinition x:Name="ViewerColumn" Width="0"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ==================== GRAELLA DE MINIATURES ==================== -->
+            <Grid Grid.Column="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>  <!-- Controls de graella -->
                     <RowDefinition Height="*"/>      <!-- Graella -->
@@ -307,9 +327,117 @@
                 </Border>
             </Grid>
 
-            <!-- ==================== VISOR D'IMATGES (overlay) ==================== -->
-            <Grid x:Name="ViewerOverlay"
-                  Visibility="{Binding IsViewerOpen, Converter={StaticResource BoolToVis}}"
+            <!-- ==================== SEPARADOR SPLIT ==================== -->
+            <GridSplitter x:Name="SplitGridSplitter" Grid.Column="1"
+                          Width="4" HorizontalAlignment="Stretch"
+                          Background="{StaticResource BorderColor}"
+                          Visibility="{Binding IsSplitViewerVisible, Converter={StaticResource BoolToVis}}"
+                          Cursor="SizeWE"/>
+
+            <!-- ==================== VISOR LATERAL (mode split) ==================== -->
+            <Grid x:Name="SplitViewerPanel" Grid.Column="2"
+                  Visibility="{Binding IsSplitViewerVisible, Converter={StaticResource BoolToVis}}"
+                  Background="{StaticResource BgDark}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Barra superior del visor split -->
+                <Border Grid.Row="0" Background="{StaticResource BgMedium}" Padding="8,6"
+                        BorderBrush="{StaticResource BorderColor}" BorderThickness="0,0,0,1">
+                    <DockPanel>
+                        <!-- Botó tancar visor split -->
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}"
+                                Command="{Binding CloseViewerCommand}" ToolTip="Tancar visor (Esc)"
+                                Padding="6,4" Margin="4,0,0,0">
+                            <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                        </Button>
+
+                        <!-- Botons de zoom -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
+                            <Button Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ViewerZoomOutCommand}" ToolTip="Reduir (-)"
+                                    Padding="6,4" Margin="1,0">
+                                <TextBlock Text="&#xE738;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                            </Button>
+                            <TextBlock Foreground="{StaticResource TextSecondary}"
+                                       VerticalAlignment="Center" FontSize="11" Margin="2,0"
+                                       Text="{Binding ViewerZoom, StringFormat={}{0:P0}}"/>
+                            <Button Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ViewerZoomInCommand}" ToolTip="Ampliar (+)"
+                                    Padding="6,4" Margin="1,0">
+                                <TextBlock Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                            </Button>
+                            <Button Style="{StaticResource BtnToolbar}"
+                                    Command="{Binding ViewerZoomResetCommand}" ToolTip="Reset zoom (0)"
+                                    Content="1:1" FontSize="10" Padding="6,4" Margin="1,0"/>
+                        </StackPanel>
+
+                        <!-- Info imatge -->
+                        <TextBlock Text="{Binding ViewerInfoText}"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   FontSize="11" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+                </Border>
+
+                <!-- Imatge al visor split -->
+                <Grid Grid.Row="1" ClipToBounds="True"
+                      MouseWheel="Viewer_MouseWheel"
+                      MouseLeftButtonDown="Viewer_MouseLeftButtonDown"
+                      MouseLeftButtonUp="Viewer_MouseLeftButtonUp"
+                      MouseMove="Viewer_MouseMove"
+                      Background="Transparent">
+
+                    <!-- Navegació esquerra -->
+                    <Button HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Style="{StaticResource BtnToolbar}"
+                            Command="{Binding ViewerPreviousCommand}"
+                            Width="40" Height="60" Margin="8,0" Opacity="0.5"
+                            ToolTip="Anterior (←)">
+                        <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
+                    </Button>
+
+                    <!-- Imatge amb zoom i pan -->
+                    <Image x:Name="SplitViewerImageControl"
+                           Source="{Binding ViewerImage}"
+                           Stretch="Uniform"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           RenderTransformOrigin="0.5,0.5">
+                        <Image.RenderTransform>
+                            <TransformGroup>
+                                <ScaleTransform ScaleX="{Binding ViewerZoom}" ScaleY="{Binding ViewerZoom}"/>
+                                <TranslateTransform X="{Binding ViewerOffsetX}" Y="{Binding ViewerOffsetY}"/>
+                            </TransformGroup>
+                        </Image.RenderTransform>
+                    </Image>
+
+                    <!-- Navegació dreta -->
+                    <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Style="{StaticResource BtnToolbar}"
+                            Command="{Binding ViewerNextCommand}"
+                            Width="40" Height="60" Margin="8,0" Opacity="0.5"
+                            ToolTip="Següent (→)">
+                        <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
+                    </Button>
+                </Grid>
+
+                <!-- Barra inferior del visor split -->
+                <Border Grid.Row="2" Background="{StaticResource BgMedium}" Padding="8,4"
+                        BorderBrush="{StaticResource BorderColor}" BorderThickness="0,1,0,0">
+                    <TextBlock Foreground="{StaticResource TextDim}" FontSize="10"
+                               VerticalAlignment="Center">
+                        <Run Text="← → navegar  |  +/- zoom  |  Tab canviar mode  |  Esc tancar"/>
+                    </TextBlock>
+                </Border>
+            </Grid>
+
+            <!-- ==================== VISOR D'IMATGES OVERLAY (mode toggle) ==================== -->
+            <Grid x:Name="ViewerOverlay" Grid.ColumnSpan="3"
+                  Visibility="{Binding IsOverlayViewerVisible, Converter={StaticResource BoolToVis}}"
                   Background="#F0000000">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -401,14 +529,14 @@
                     <DockPanel>
                         <TextBlock Foreground="{StaticResource TextSecondary}" FontSize="12"
                                    VerticalAlignment="Center">
-                            <Run Text="Utilitza ← → per navegar, +/- per zoom, Esc per tancar"/>
+                            <Run Text="← → navegar  |  +/- zoom  |  Tab canviar mode  |  Esc tancar"/>
                         </TextBlock>
                     </DockPanel>
                 </Border>
             </Grid>
 
             <!-- ==================== PANELL D'IMPORTACIÓ (overlay lateral) ==================== -->
-            <Border x:Name="ImportPanel"
+            <Border x:Name="ImportPanel" Grid.ColumnSpan="3"
                     HorizontalAlignment="Right" Width="350"
                     Background="{StaticResource BgMedium}"
                     BorderBrush="{StaticResource BorderColor}" BorderThickness="1,0,0,0"
