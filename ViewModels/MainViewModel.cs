@@ -42,6 +42,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _currentFolderPath;
 
+    /// <summary>Llista de carpetes obertes</summary>
+    public ObservableCollection<string> OpenFolders { get; } = [];
+
+    /// <summary>Nombre de carpetes obertes (per binding)</summary>
+    [ObservableProperty]
+    private int _openFolderCount;
+
     // === Propietats de la graella ===
 
     /// <summary>Col·lecció central de totes les fotos carregades (sense filtrar)</summary>
@@ -53,9 +60,35 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Conjunt de fotos seleccionades</summary>
     public ObservableCollection<PhotoItem> SelectedPhotos { get; } = [];
 
-    /// <summary>Filtre de tipus: 0=Tot, 1=Fotos, 2=Vídeos</summary>
+    /// <summary>Filtre: mostrar fotos</summary>
     [ObservableProperty]
-    private int _filterType;
+    private bool _filterPhotos = true;
+
+    /// <summary>Filtre: mostrar vídeos</summary>
+    [ObservableProperty]
+    private bool _filterVideos = true;
+
+    /// <summary>Filtre de tipus (compat interna): 0=Tot, 1=Fotos, 2=Vídeos</summary>
+    public int FilterType
+    {
+        get
+        {
+            if (_filterPhotos && _filterVideos) return 0;
+            if (_filterPhotos) return 1;
+            if (_filterVideos) return 2;
+            return 0; // Si no hi ha cap, mostrar tot
+        }
+        set
+        {
+            // Mantenir compat amb code-behind existent
+            switch (value)
+            {
+                case 0: FilterPhotos = true; FilterVideos = true; break;
+                case 1: FilterPhotos = true; FilterVideos = false; break;
+                case 2: FilterPhotos = false; FilterVideos = true; break;
+            }
+        }
+    }
 
     [ObservableProperty]
     private int _selectedPhotosCount;
@@ -170,8 +203,19 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// Quan canvia el filtre, actualitzem la col·lecció visible.
     /// </summary>
-    partial void OnFilterTypeChanged(int value)
+    partial void OnFilterPhotosChanged(bool value)
     {
+        // Si cap filtre actiu, activar l'altre
+        if (!value && !FilterVideos) FilterVideos = true;
+        OnPropertyChanged(nameof(FilterType));
+        ApplyFilter();
+    }
+
+    partial void OnFilterVideosChanged(bool value)
+    {
+        // Si cap filtre actiu, activar l'altre
+        if (!value && !FilterPhotos) FilterPhotos = true;
+        OnPropertyChanged(nameof(FilterType));
         ApplyFilter();
     }
 
@@ -183,10 +227,11 @@ public partial class MainViewModel : ObservableObject
         Photos.Clear();
         SelectedPhotos.Clear();
 
-        var filtered = FilterType switch
+        var filtered = (FilterPhotos, FilterVideos) switch
         {
-            1 => _allPhotos.Where(p => !p.IsVideo),
-            2 => _allPhotos.Where(p => p.IsVideo),
+            (true, true) => _allPhotos.AsEnumerable(),
+            (true, false) => _allPhotos.Where(p => !p.IsVideo),
+            (false, true) => _allPhotos.Where(p => p.IsVideo),
             _ => _allPhotos.AsEnumerable()
         };
 
@@ -198,7 +243,7 @@ public partial class MainViewModel : ObservableObject
             Photos.Add(item);
         }
 
-        StatusMessage = $"{Photos.Count} imatge(s) mostrada(es) de {_allPhotos.Count} totals";
+        UpdateStatusMessage();
     }
 
     /// <summary>
@@ -255,15 +300,22 @@ public partial class MainViewModel : ObservableObject
 
         if (dialog.ShowDialog() != true) return;
 
-        await LoadFolderAsync(dialog.FolderName);
+        await AddFolderAsync(dialog.FolderName);
     }
 
     /// <summary>
-    /// Carrega les imatges d'una carpeta al visor.
+    /// Afegeix una carpeta al visor, acumulant les fotos amb les ja existents.
     /// </summary>
-    public async Task LoadFolderAsync(string folderPath)
+    public async Task AddFolderAsync(string folderPath)
     {
-        // Cancel·lar operacions anteriors
+        // Si la carpeta ja està oberta, no fer res
+        if (OpenFolders.Contains(folderPath))
+        {
+            StatusMessage = $"La carpeta ja està oberta: {Path.GetFileName(folderPath)}";
+            return;
+        }
+
+        // Cancel·lar operacions anteriors de miniatures
         _thumbnailCts?.Cancel();
         _prefetchCts?.Cancel();
 
@@ -275,10 +327,6 @@ public partial class MainViewModel : ObservableObject
         // Tancar el visor si estava obert
         CloseViewer();
 
-        _allPhotos.Clear();
-        Photos.Clear();
-        SelectedPhotos.Clear();
-
         try
         {
             var progress = new Progress<(int scanned, int found, string currentFile)>(info =>
@@ -288,17 +336,23 @@ public partial class MainViewModel : ObservableObject
 
             var items = await _fileService.ScanFolderAsync(folderPath, progress);
 
-            // Ordenar per data (més recents primer)
-            items.Sort((a, b) => (b.DateTaken ?? DateTime.MinValue).CompareTo(a.DateTaken ?? DateTime.MinValue));
+            // Afegir la carpeta a la llista
+            OpenFolders.Add(folderPath);
+            OpenFolderCount = OpenFolders.Count;
 
+            // Afegir les noves fotos
             _allPhotos.AddRange(items);
+
+            // Reordenar tota la llista per data (més recents primer)
+            _allPhotos.Sort((a, b) => (b.DateTaken ?? DateTime.MinValue).CompareTo(a.DateTaken ?? DateTime.MinValue));
+
             PhotoCount = _allPhotos.Count(p => !p.IsVideo);
             VideoCount = _allPhotos.Count(p => p.IsVideo);
 
             // Aplicar el filtre actual
             ApplyFilter();
 
-            StatusMessage = $"{Photos.Count} imatge(s) trobada(es) a {Path.GetFileName(folderPath)}";
+            UpdateStatusMessage();
 
             // Carregar miniatures en segon pla
             _ = LoadThumbnailsAsync();
@@ -311,6 +365,88 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Carrega les imatges d'una carpeta al visor (substitueix tot, per compatibilitat amb importació MTP).
+    /// </summary>
+    public async Task LoadFolderAsync(string folderPath)
+    {
+        // Netejar tot primer i després afegir
+        ClearAllFolders();
+        await AddFolderAsync(folderPath);
+    }
+
+    /// <summary>
+    /// Elimina una carpeta i les seves fotos de la vista.
+    /// </summary>
+    [RelayCommand]
+    private void RemoveFolder(string? folderPath)
+    {
+        if (string.IsNullOrEmpty(folderPath) || !OpenFolders.Contains(folderPath)) return;
+
+        // Tancar el visor si estava obert
+        CloseViewer();
+
+        // Eliminar fotos d'aquesta carpeta
+        _allPhotos.RemoveAll(p => p.FullPath.StartsWith(folderPath, StringComparison.OrdinalIgnoreCase));
+
+        // Eliminar la carpeta de la llista
+        OpenFolders.Remove(folderPath);
+        OpenFolderCount = OpenFolders.Count;
+
+        // Actualitzar CurrentFolderPath
+        CurrentFolderPath = OpenFolders.Count > 0 ? OpenFolders[^1] : null;
+
+        // Actualitzar comptadors
+        PhotoCount = _allPhotos.Count(p => !p.IsVideo);
+        VideoCount = _allPhotos.Count(p => p.IsVideo);
+
+        // Reaplicar filtre
+        ApplyFilter();
+        UpdateStatusMessage();
+    }
+
+    /// <summary>
+    /// Neteja totes les carpetes i fotos.
+    /// </summary>
+    [RelayCommand]
+    private void ClearAllFolders()
+    {
+        _thumbnailCts?.Cancel();
+        _prefetchCts?.Cancel();
+
+        CloseViewer();
+
+        OpenFolders.Clear();
+        OpenFolderCount = 0;
+        _allPhotos.Clear();
+        Photos.Clear();
+        SelectedPhotos.Clear();
+        CurrentFolderPath = null;
+        PhotoCount = 0;
+        VideoCount = 0;
+
+        StatusMessage = "Obre una carpeta per començar a visualitzar imatges.";
+    }
+
+    /// <summary>
+    /// Actualitza el missatge d'estat amb el recompte de carpetes i imatges.
+    /// </summary>
+    private void UpdateStatusMessage()
+    {
+        if (OpenFolders.Count == 0)
+        {
+            StatusMessage = "Obre una carpeta per començar a visualitzar imatges.";
+        }
+        else if (OpenFolders.Count == 1)
+        {
+            StatusMessage = $"{_allPhotos.Count} imatge(s) de {Path.GetFileName(OpenFolders[0])}";
+        }
+        else
+        {
+            StatusMessage = $"{_allPhotos.Count} imatge(s) de {OpenFolders.Count} carpetes";
         }
     }
 
