@@ -532,7 +532,9 @@
                                         Background="{StaticResource BgCard}"
                                         BorderThickness="2" BorderBrush="Transparent"
                                         Cursor="Hand"
-                                        MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown">
+                                        MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
+                                        MouseMove="Thumbnail_MouseMove"
+                                        MouseLeftButtonUp="Thumbnail_MouseLeftButtonUp">
                                     <Grid>
                                         <!-- Miniatura -->
                                         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"

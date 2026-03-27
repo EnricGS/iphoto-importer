@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -27,6 +28,12 @@ public partial class MainWindow : Window
     private bool _isRubberBandActive;
     private Point _rubberBandOrigin;
     private bool _rubberBandCtrlHeld;
+
+    // Drag-and-drop de miniatures cap a aplicacions externes
+    private bool _thumbDragPending;
+    private Point _thumbDragStartPos;
+    private PhotoItem? _thumbDragItem;
+    private FrameworkElement? _thumbDragElement;
 
     public MainWindow()
     {
@@ -210,18 +217,99 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Gestiona el clic a una miniatura de la graella.
-    /// Suporta Ctrl+clic i Shift+clic per selecció múltiple.
+    /// Suporta Ctrl+clic, Shift+clic per selecció múltiple,
+    /// i drag-and-drop cap a aplicacions externes.
     /// </summary>
     private void Thumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement element && element.DataContext is PhotoItem item)
         {
+            // Registrar posició inicial per detectar arrossegament cap a fora
+            _thumbDragPending = true;
+            _thumbDragStartPos = e.GetPosition(this);
+            _thumbDragItem = item;
+            _thumbDragElement = element;
+
+            // Si l'element ja està seleccionat, no processar el clic encara
+            // (es farà al MouseUp si no hi ha drag)
+            if (item.IsSelected)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // Per elements no seleccionats, processar el clic immediatament
+            // (Ctrl/Shift selecció o obrir visor)
             var isCtrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
             var isShift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
-
             _viewModel.HandleGridClick(item, isCtrl, isShift);
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// Detecta si l'usuari arrossega una miniatura més enllà del llindar mínim
+    /// i inicia un drag-and-drop amb els fitxers seleccionats.
+    /// </summary>
+    private void Thumbnail_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_thumbDragPending || _thumbDragItem == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            _thumbDragPending = false;
+            return;
+        }
+
+        var currentPos = e.GetPosition(this);
+        var dx = Math.Abs(currentPos.X - _thumbDragStartPos.X);
+        var dy = Math.Abs(currentPos.Y - _thumbDragStartPos.Y);
+
+        if (dx < SystemParameters.MinimumHorizontalDragDistance &&
+            dy < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        // Llindar superat: iniciar drag-and-drop
+        _thumbDragPending = false;
+
+        // Si l'element arrossegat no està seleccionat, seleccionar-lo sol
+        if (!_thumbDragItem.IsSelected)
+        {
+            foreach (var p in _viewModel.Photos)
+                p.IsSelected = false;
+            _thumbDragItem.IsSelected = true;
+        }
+
+        // Recollir les rutes de tots els elements seleccionats
+        var selectedPaths = _viewModel.Photos
+            .Where(p => p.IsSelected && !string.IsNullOrEmpty(p.FullPath))
+            .Select(p => p.FullPath)
+            .ToArray();
+
+        if (selectedPaths.Length == 0) return;
+
+        var dataObject = new DataObject(DataFormats.FileDrop, selectedPaths);
+        DragDrop.DoDragDrop(_thumbDragElement!, dataObject, DragDropEffects.Copy);
+    }
+
+    /// <summary>
+    /// Quan es deixa anar el botó sense haver arrossegat, processar el clic normal.
+    /// </summary>
+    private void Thumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_thumbDragPending || _thumbDragItem == null)
+        {
+            _thumbDragPending = false;
+            return;
+        }
+
+        _thumbDragPending = false;
+
+        // El clic va ser sobre un element seleccionat sense arrossegar:
+        // processar com a clic normal (obrir visor o gestionar Ctrl/Shift)
+        var isCtrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        var isShift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        _viewModel.HandleGridClick(_thumbDragItem, isCtrl, isShift);
+        e.Handled = true;
     }
 
     /// <summary>
