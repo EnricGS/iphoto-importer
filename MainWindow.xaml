@@ -1074,7 +1074,7 @@
         </Grid>
 
         <!-- ==================== BARRA D'ESTAT ==================== -->
-        <Border Grid.Row="3" Background="{StaticResource BgSurface}" Padding="16,6"
+        <Border Grid.Row="2" Background="{StaticResource BgSurface}" Padding="16,6"
                 BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0">
             <DockPanel>
                 <ProgressBar DockPanel.Dock="Right" Value="{Binding CopyProgress}"

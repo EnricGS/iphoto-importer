@@ -73,9 +73,9 @@ public partial class MainViewModel : ObservableObject
     {
         get
         {
-            if (_filterPhotos && _filterVideos) return 0;
-            if (_filterPhotos) return 1;
-            if (_filterVideos) return 2;
+            if (FilterPhotos && FilterVideos) return 0;
+            if (FilterPhotos) return 1;
+            if (FilterVideos) return 2;
             return 0; // Si no hi ha cap, mostrar tot
         }
         set
@@ -206,7 +206,11 @@ public partial class MainViewModel : ObservableObject
     partial void OnFilterPhotosChanged(bool value)
     {
         // Si cap filtre actiu, activar l'altre
-        if (!value && !FilterVideos) FilterVideos = true;
+        if (!value && !FilterVideos)
+        {
+            FilterVideos = true;
+            return; // OnFilterVideosChanged ja farà ApplyFilter
+        }
         OnPropertyChanged(nameof(FilterType));
         ApplyFilter();
     }
@@ -214,7 +218,11 @@ public partial class MainViewModel : ObservableObject
     partial void OnFilterVideosChanged(bool value)
     {
         // Si cap filtre actiu, activar l'altre
-        if (!value && !FilterPhotos) FilterPhotos = true;
+        if (!value && !FilterPhotos)
+        {
+            FilterPhotos = true;
+            return; // OnFilterPhotosChanged ja farà ApplyFilter
+        }
         OnPropertyChanged(nameof(FilterType));
         ApplyFilter();
     }
