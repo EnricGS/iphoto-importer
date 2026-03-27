@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using iPhotoImporter.Models;
 using iPhotoImporter.ViewModels;
 
@@ -38,7 +40,12 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainViewModel.IsSplitViewerVisible))
+        if (e.PropertyName == nameof(MainViewModel.ViewerZoom))
+        {
+            // Sync _targetZoom when zoom changes from ViewModel (buttons, reset)
+            _targetZoom = _viewModel.ViewerZoom;
+        }
+        else if (e.PropertyName == nameof(MainViewModel.IsSplitViewerVisible))
         {
             UpdateSplitLayout();
         }
@@ -212,20 +219,64 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Zoom amb la roda del ratolí al visor.
+    /// Zoom amb la roda del ratolí al visor (smooth).
     /// </summary>
+    private double _targetZoom = 1.0;
     private void Viewer_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        // Funciona tant en overlay com en split
         var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
         if (!viewerActive) return;
 
         if (e.Delta > 0)
-            _viewModel.ViewerZoomInCommand.Execute(null);
+            _targetZoom = Math.Min(_targetZoom * 1.15, 10.0);
         else
-            _viewModel.ViewerZoomOutCommand.Execute(null);
+            _targetZoom = Math.Max(_targetZoom / 1.15, 0.1);
 
+        AnimateZoomTo(_targetZoom);
         e.Handled = true;
+    }
+
+    private void AnimateZoomTo(double target)
+    {
+        var duration = new Duration(TimeSpan.FromMilliseconds(150));
+        var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+        var anim = new System.Windows.Media.Animation.DoubleAnimation(target, duration) { EasingFunction = ease };
+
+        anim.Completed += (s, e) =>
+        {
+            _viewModel.ViewerZoom = target;
+        };
+
+        // Animate both overlay and split ScaleTransforms
+        var overlayScale = FindScaleTransform("ViewerImageControl");
+        var splitScale = FindScaleTransform("SplitViewerImageControl");
+
+        if (overlayScale != null)
+        {
+            overlayScale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+            overlayScale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+        }
+        if (splitScale != null)
+        {
+            splitScale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+            splitScale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+        }
+
+        // Update display text
+        _viewModel.ViewerZoom = target;
+    }
+
+    private ScaleTransform? FindScaleTransform(string imageName)
+    {
+        var img = FindName(imageName) as FrameworkElement;
+        if (img?.RenderTransform is TransformGroup tg)
+        {
+            foreach (var t in tg.Children)
+            {
+                if (t is ScaleTransform st) return st;
+            }
+        }
+        return null;
     }
 
     /// <summary>
