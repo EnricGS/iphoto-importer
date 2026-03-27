@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 using iPhotoImporter.Models;
 using iPhotoImporter.ViewModels;
 
@@ -21,6 +22,11 @@ public partial class MainWindow : Window
     private double _dragStartOffsetX;
     private double _dragStartOffsetY;
     private double _savedScrollOffset;
+
+    // Rubber band selection
+    private bool _isRubberBandActive;
+    private Point _rubberBandOrigin;
+    private bool _rubberBandCtrlHeld;
 
     public MainWindow()
     {
@@ -402,5 +408,141 @@ public partial class MainWindow : Window
     private void VideoPlayer_MediaEnded(object sender, RoutedEventArgs e)
     {
         _isVideoPlaying = false;
+    }
+
+    // === Selecció amb arrossegament (rubber band) ===
+
+    /// <summary>
+    /// Determina si el clic ha impactat sobre una miniatura (thumbnail border).
+    /// </summary>
+    private bool IsClickOnThumbnail(MouseButtonEventArgs e)
+    {
+        var hit = e.OriginalSource as DependencyObject;
+        while (hit != null)
+        {
+            if (hit is FrameworkElement fe && fe.DataContext is PhotoItem)
+            {
+                // Hem trobat un element dins d'una miniatura
+                if (hit is Border || hit is Image || hit is CheckBox || hit is TextBlock)
+                    return true;
+            }
+            if (hit == ThumbnailScrollViewer) break;
+            hit = VisualTreeHelper.GetParent(hit);
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Inicia la selecció amb arrossegament si el clic és sobre espai buit de la graella.
+    /// </summary>
+    private void ThumbnailArea_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // No iniciar rubber band si el clic és sobre una miniatura
+        if (IsClickOnThumbnail(e)) return;
+
+        // No iniciar si el visor overlay està obert
+        if (_viewModel.IsOverlayViewerVisible) return;
+
+        _rubberBandOrigin = e.GetPosition(SelectionCanvas);
+        _rubberBandCtrlHeld = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        _isRubberBandActive = true;
+
+        // Configurar el rectangle de selecció
+        Canvas.SetLeft(SelectionRectangle, _rubberBandOrigin.X);
+        Canvas.SetTop(SelectionRectangle, _rubberBandOrigin.Y);
+        SelectionRectangle.Width = 0;
+        SelectionRectangle.Height = 0;
+        SelectionRectangle.Visibility = Visibility.Visible;
+
+        // Capturar el ratolí al ScrollViewer
+        ThumbnailScrollViewer.CaptureMouse();
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Actualitza el rectangle de selecció durant l'arrossegament.
+    /// </summary>
+    private void ThumbnailArea_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isRubberBandActive) return;
+
+        var currentPos = e.GetPosition(SelectionCanvas);
+
+        var x = Math.Min(_rubberBandOrigin.X, currentPos.X);
+        var y = Math.Min(_rubberBandOrigin.Y, currentPos.Y);
+        var w = Math.Abs(currentPos.X - _rubberBandOrigin.X);
+        var h = Math.Abs(currentPos.Y - _rubberBandOrigin.Y);
+
+        Canvas.SetLeft(SelectionRectangle, x);
+        Canvas.SetTop(SelectionRectangle, y);
+        SelectionRectangle.Width = w;
+        SelectionRectangle.Height = h;
+    }
+
+    /// <summary>
+    /// Finalitza la selecció amb arrossegament i selecciona les miniatures dins del rectangle.
+    /// </summary>
+    private void ThumbnailArea_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isRubberBandActive) return;
+
+        _isRubberBandActive = false;
+        ThumbnailScrollViewer.ReleaseMouseCapture();
+        SelectionRectangle.Visibility = Visibility.Collapsed;
+
+        // Calcular el rectangle de selecció en coordenades del canvas
+        var selRect = new Rect(
+            Canvas.GetLeft(SelectionRectangle),
+            Canvas.GetTop(SelectionRectangle),
+            SelectionRectangle.Width,
+            SelectionRectangle.Height);
+
+        // Si el rectangle és massa petit, tractar com un clic simple (deseleccionar tot)
+        if (selRect.Width < 5 && selRect.Height < 5)
+        {
+            if (!_rubberBandCtrlHeld)
+                _viewModel.DeselectAllCommand.Execute(null);
+            return;
+        }
+
+        // Si no es manté Ctrl, deseleccionar tot primer
+        if (!_rubberBandCtrlHeld)
+            _viewModel.DeselectAllCommand.Execute(null);
+
+        // Trobar quines miniatures intersecten amb el rectangle de selecció
+        for (var i = 0; i < _viewModel.Photos.Count; i++)
+        {
+            var container = PhotoGrid.ItemContainerGenerator.ContainerFromIndex(i) as FrameworkElement;
+            if (container == null) continue;
+
+            // Obtenir la posició de la miniatura relativa al canvas overlay
+            try
+            {
+                var topLeft = container.TranslatePoint(new Point(0, 0), SelectionCanvas);
+                var itemRect = new Rect(topLeft, new Size(container.ActualWidth, container.ActualHeight));
+
+                if (selRect.IntersectsWith(itemRect))
+                {
+                    _viewModel.Photos[i].IsSelected = true;
+                }
+            }
+            catch
+            {
+                // L'element pot no ser visible (fora del viewport virtualitzat)
+            }
+        }
+
+        e.Handled = true;
+    }
+
+    // === Clic dret per deseleccionar ===
+
+    /// <summary>
+    /// Clic dret a la graella: deseleccionar tots els elements.
+    /// </summary>
+    private void ThumbnailArea_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _viewModel.DeselectAllCommand.Execute(null);
+        e.Handled = true;
     }
 }

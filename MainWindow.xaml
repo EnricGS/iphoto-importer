@@ -501,11 +501,16 @@
                     </DockPanel>
                 </Border>
 
-                <!-- Graella de miniatures -->
-                <ScrollViewer Grid.Row="2" x:Name="ThumbnailScrollViewer"
+                <!-- Graella de miniatures amb canvas overlay per selecció amb arrossegament -->
+                <Grid Grid.Row="2">
+                <ScrollViewer x:Name="ThumbnailScrollViewer"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
-                              Background="{StaticResource BgBase}">
+                              Background="{StaticResource BgBase}"
+                              MouseRightButtonDown="ThumbnailArea_MouseRightButtonDown"
+                              PreviewMouseLeftButtonDown="ThumbnailArea_PreviewMouseLeftButtonDown"
+                              PreviewMouseMove="ThumbnailArea_PreviewMouseMove"
+                              PreviewMouseLeftButtonUp="ThumbnailArea_PreviewMouseLeftButtonUp">
                     <ItemsControl ItemsSource="{Binding Photos}"
                                   x:Name="PhotoGrid"
                                   VirtualizingPanel.IsVirtualizing="True"
@@ -611,6 +616,17 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
+
+                <!-- Canvas overlay per al rectangle de selecció (rubber band) -->
+                <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False">
+                    <Rectangle x:Name="SelectionRectangle"
+                               Fill="#30E8935A"
+                               Stroke="#E8935A"
+                               StrokeThickness="1"
+                               RadiusX="2" RadiusY="2"
+                               Visibility="Collapsed"/>
+                </Canvas>
+                </Grid>
 
                 <!-- Missatge benvinguda quan no hi ha fotos -->
                 <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
