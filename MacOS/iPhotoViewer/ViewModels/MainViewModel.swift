@@ -30,20 +30,50 @@ final class MainViewModel {
     var copyProgress: Double = 0
     var currentFolderPath: String?
 
+    // MARK: - Multi-Folder Support
+
+    /// List of open folders
+    var openFolders: [String] = []
+
+    /// Number of open folders (for binding)
+    var openFolderCount: Int { openFolders.count }
+
     // MARK: - Grid State
 
+    /// All photos (unfiltered master list)
+    private var allPhotos: [PhotoItem] = []
+
+    /// Filtered photos shown in the grid
     var photos: [PhotoItem] = []
-    var filteredPhotos: [PhotoItem] {
-        switch mediaFilter {
-        case .all: return photos
-        case .photos: return photos.filter { $0.isImage }
-        case .videos: return photos.filter { $0.isVideo }
-        }
-    }
     var selectedPhotos: Set<PhotoItem> = []
     var thumbnailSize: CGFloat = 150
-    var mediaFilter: MediaFilter = .all
     var lastClickedIndex: Int?
+
+    /// Filter toggles (both active by default, like Windows)
+    var filterPhotos: Bool = true {
+        didSet {
+            // If both off, force the other one on
+            if !filterPhotos && !filterVideos {
+                filterVideos = true
+                return
+            }
+            applyFilter()
+        }
+    }
+
+    var filterVideos: Bool = true {
+        didSet {
+            if !filterVideos && !filterPhotos {
+                filterPhotos = true
+                return
+            }
+            applyFilter()
+        }
+    }
+
+    /// Counts by type (for filter toggle labels)
+    var photoCount: Int = 0
+    var videoCount: Int = 0
 
     var selectedPhotosCount: Int { selectedPhotos.count }
     var totalSelectedSizeMB: Double {
@@ -64,6 +94,7 @@ final class MainViewModel {
     var viewerInfoText: String = ""
     var isViewingVideo: Bool = false
     var viewerVideoURL: URL?
+    var viewerVideoRotation: Int = 0
 
     var hasViewerImage: Bool { isViewerOpen && viewerImage != nil }
 
@@ -94,6 +125,33 @@ final class MainViewModel {
 
     var scrollToIndex: Int?
 
+    // MARK: - Filter
+
+    /// Applies the photo/video filter toggles to the photos collection.
+    private func applyFilter() {
+        photos.removeAll()
+        selectedPhotos.removeAll()
+
+        let filtered: [PhotoItem]
+        switch (filterPhotos, filterVideos) {
+        case (true, true):
+            filtered = allPhotos
+        case (true, false):
+            filtered = allPhotos.filter { !$0.isVideo }
+        case (false, true):
+            filtered = allPhotos.filter { $0.isVideo }
+        default:
+            filtered = allPhotos
+        }
+
+        for item in filtered {
+            item.isSelected = false
+            photos.append(item)
+        }
+
+        updateStatusMessage()
+    }
+
     // MARK: - Folder Operations
 
     func openFolder() {
@@ -105,12 +163,20 @@ final class MainViewModel {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
-            await loadFolder(at: url.path)
+            await addFolder(at: url.path)
         }
     }
 
-    func loadFolder(at path: String) async {
-        // Cancel previous operations
+    /// Adds a folder to the viewer, accumulating photos with existing ones.
+    func addFolder(at path: String) async {
+        // If folder is already open, skip
+        if openFolders.contains(path) {
+            let folderName = (path as NSString).lastPathComponent
+            statusMessage = "Folder already open: \(folderName)"
+            return
+        }
+
+        // Cancel previous thumbnail operations
         thumbnailTask?.cancel()
         prefetchTask?.cancel()
 
@@ -122,9 +188,6 @@ final class MainViewModel {
         // Close viewer if open
         closeViewer()
 
-        photos.removeAll()
-        selectedPhotos.removeAll()
-
         do {
             let items = try await fileService.scanFolder(at: path) { [weak self] scanned, found, file in
                 Task { @MainActor [weak self] in
@@ -132,15 +195,25 @@ final class MainViewModel {
                 }
             }
 
-            // Sort by date (newest first)
-            let sorted = items.sorted { a, b in
-                (b.dateTaken ?? .distantPast) < (a.dateTaken ?? .distantPast)
+            // Add the folder to the list
+            openFolders.append(path)
+
+            // Add new photos
+            allPhotos.append(contentsOf: items)
+
+            // Sort all by date (newest first)
+            allPhotos.sort { a, b in
+                (a.dateTaken ?? .distantPast) > (b.dateTaken ?? .distantPast)
             }
 
-            photos = sorted
+            // Update counts
+            photoCount = allPhotos.filter { !$0.isVideo }.count
+            videoCount = allPhotos.filter { $0.isVideo }.count
 
-            let folderName = (path as NSString).lastPathComponent
-            statusMessage = "\(photos.count) image(s) found in \(folderName)"
+            // Apply current filter
+            applyFilter()
+
+            updateStatusMessage()
 
             // Load thumbnails in background
             loadThumbnails()
@@ -150,6 +223,66 @@ final class MainViewModel {
         }
 
         isLoading = false
+    }
+
+    /// Loads images from a folder (replaces all, for import compatibility).
+    func loadFolder(at path: String) async {
+        clearAllFolders()
+        await addFolder(at: path)
+    }
+
+    /// Removes a folder and its photos from the view.
+    func removeFolder(_ folderPath: String) {
+        guard openFolders.contains(folderPath) else { return }
+
+        closeViewer()
+
+        // Remove photos from this folder
+        allPhotos.removeAll { $0.fullPath.hasPrefix(folderPath) }
+
+        // Remove the folder
+        openFolders.removeAll { $0 == folderPath }
+
+        // Update current folder path
+        currentFolderPath = openFolders.last
+
+        // Update counts
+        photoCount = allPhotos.filter { !$0.isVideo }.count
+        videoCount = allPhotos.filter { $0.isVideo }.count
+
+        // Re-apply filter
+        applyFilter()
+        updateStatusMessage()
+    }
+
+    /// Clears all folders and photos.
+    func clearAllFolders() {
+        thumbnailTask?.cancel()
+        prefetchTask?.cancel()
+
+        closeViewer()
+
+        openFolders.removeAll()
+        allPhotos.removeAll()
+        photos.removeAll()
+        selectedPhotos.removeAll()
+        currentFolderPath = nil
+        photoCount = 0
+        videoCount = 0
+
+        statusMessage = "Open a folder to start viewing images."
+    }
+
+    /// Updates the status message with folder and image counts.
+    private func updateStatusMessage() {
+        if openFolders.isEmpty {
+            statusMessage = "Open a folder to start viewing images."
+        } else if openFolders.count == 1 {
+            let folderName = (openFolders[0] as NSString).lastPathComponent
+            statusMessage = "\(allPhotos.count) image(s) from \(folderName)"
+        } else {
+            statusMessage = "\(allPhotos.count) image(s) from \(openFolders.count) folders"
+        }
     }
 
     // MARK: - Thumbnail Loading
@@ -194,7 +327,7 @@ final class MainViewModel {
 
     func openViewer(for item: PhotoItem) {
         guard !photos.isEmpty else { return }
-        guard let index = filteredPhotos.firstIndex(of: item) else { return }
+        guard let index = photos.firstIndex(of: item) else { return }
 
         viewerIndex = index
 
@@ -213,6 +346,7 @@ final class MainViewModel {
         viewerCurrentItem = nil
         isViewingVideo = false
         viewerVideoURL = nil
+        viewerVideoRotation = 0
         viewerZoom = 1.0
         viewerOffsetX = 0
         viewerOffsetY = 0
@@ -225,22 +359,19 @@ final class MainViewModel {
     }
 
     func viewerNext() {
-        let items = filteredPhotos
-        guard !items.isEmpty else { return }
-        let newIndex = (viewerIndex + 1) % items.count
+        guard !photos.isEmpty else { return }
+        let newIndex = (viewerIndex + 1) % photos.count
         navigateViewer(to: newIndex)
     }
 
     func viewerPrevious() {
-        let items = filteredPhotos
-        guard !items.isEmpty else { return }
-        let newIndex = (viewerIndex - 1 + items.count) % items.count
+        guard !photos.isEmpty else { return }
+        let newIndex = (viewerIndex - 1 + photos.count) % photos.count
         navigateViewer(to: newIndex)
     }
 
     private func navigateViewer(to index: Int) {
-        let items = filteredPhotos
-        guard index >= 0 && index < items.count else { return }
+        guard index >= 0 && index < photos.count else { return }
 
         // Remove previous highlight
         viewerCurrentItem?.isHighlighted = false
@@ -250,7 +381,7 @@ final class MainViewModel {
         viewerOffsetX = 0
         viewerOffsetY = 0
 
-        loadViewerImage(for: items[index])
+        loadViewerImage(for: photos[index])
 
         // In split mode, request scroll to the active thumbnail
         if isSplitMode {
@@ -264,6 +395,11 @@ final class MainViewModel {
 
         if item.isVideo {
             isViewingVideo = true
+            // Read rotation if not yet set
+            if item.videoRotation == 0 {
+                item.videoRotation = FileService.getVideoRotation(filePath: item.fullPath)
+            }
+            viewerVideoRotation = item.videoRotation
             viewerVideoURL = URL(fileURLWithPath: item.fullPath)
             viewerImage = item.thumbnail
             updateViewerInfo(for: item)
@@ -272,6 +408,7 @@ final class MainViewModel {
 
         isViewingVideo = false
         viewerVideoURL = nil
+        viewerVideoRotation = 0
 
         // 1. Show thumbnail immediately (progressive rendering)
         if let thumb = item.thumbnail {
@@ -318,7 +455,7 @@ final class MainViewModel {
     /// Prefetches neighbor images (N +/- 2) for fast navigation.
     private func prefetchNeighbors() {
         prefetchTask?.cancel()
-        let items = filteredPhotos
+        let items = photos
         let currentIndex = viewerIndex
 
         prefetchTask = Task {
@@ -346,9 +483,8 @@ final class MainViewModel {
     }
 
     private func updateViewerInfo(for item: PhotoItem) {
-        let items = filteredPhotos
         var parts: [String] = [
-            "\(viewerIndex + 1) / \(items.count)",
+            "\(viewerIndex + 1) / \(photos.count)",
             item.fileName
         ]
 
@@ -403,7 +539,7 @@ final class MainViewModel {
     }
 
     func selectAll() {
-        for photo in filteredPhotos {
+        for photo in photos {
             photo.isSelected = true
             selectedPhotos.insert(photo)
         }
@@ -418,25 +554,23 @@ final class MainViewModel {
 
     /// Handles grid click with modifier keys (Cmd+click, Shift+click).
     func handleGridClick(item: PhotoItem, isCommandPressed: Bool, isShiftPressed: Bool) {
-        let items = filteredPhotos
-
         if isCommandPressed {
             // Cmd+click: toggle individual selection
             toggleSelection(for: item)
-            lastClickedIndex = items.firstIndex(of: item)
+            lastClickedIndex = photos.firstIndex(of: item)
         } else if isShiftPressed, let lastIndex = lastClickedIndex {
             // Shift+click: range selection
-            guard let clickedIndex = items.firstIndex(of: item) else { return }
+            guard let clickedIndex = photos.firstIndex(of: item) else { return }
 
             let start = min(lastIndex, clickedIndex)
             let end = max(lastIndex, clickedIndex)
             for i in start...end {
-                items[i].isSelected = true
-                selectedPhotos.insert(items[i])
+                photos[i].isSelected = true
+                selectedPhotos.insert(photos[i])
             }
         } else {
             // Simple click: open in viewer
-            lastClickedIndex = items.firstIndex(of: item)
+            lastClickedIndex = photos.firstIndex(of: item)
             openViewer(for: item)
         }
     }
@@ -573,9 +707,13 @@ final class MainViewModel {
 
             // Remove moved items from the list
             for item in filesToMove {
+                allPhotos.removeAll { $0 == item }
                 photos.removeAll { $0 == item }
                 selectedPhotos.remove(item)
             }
+
+            photoCount = allPhotos.filter { !$0.isVideo }.count
+            videoCount = allPhotos.filter { $0.isVideo }.count
 
             statusMessage = "\(moved) file(s) moved to \(url.path)"
         } catch {
@@ -612,9 +750,13 @@ final class MainViewModel {
             }
 
             for item in filesToDelete {
+                allPhotos.removeAll { $0 == item }
                 photos.removeAll { $0 == item }
                 selectedPhotos.remove(item)
             }
+
+            photoCount = allPhotos.filter { !$0.isVideo }.count
+            videoCount = allPhotos.filter { $0.isVideo }.count
 
             statusMessage = "\(deleted) file(s) moved to Trash."
         } catch {

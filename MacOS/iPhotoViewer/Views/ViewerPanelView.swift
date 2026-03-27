@@ -16,7 +16,7 @@ struct ViewerPanelView: View {
 
             // Content
             ZStack {
-                Color.black
+                Color.bgBase
 
                 if viewModel.isViewingVideo, let videoURL = viewModel.viewerVideoURL {
                     VideoPlayerView(url: videoURL)
@@ -26,81 +26,125 @@ struct ViewerPanelView: View {
                     Text("Select an image")
                         .foregroundStyle(Color.textSecondary)
                 }
+
+                // Navigation buttons
+                HStack {
+                    Button { viewModel.viewerPrevious() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 64)
+                            .background(Color.black.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(0.5)
+                    .padding(.leading, 10)
+                    .help("Previous")
+
+                    Spacer()
+
+                    Button { viewModel.viewerNext() } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 64)
+                            .background(Color.black.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(0.5)
+                    .padding(.trailing, 10)
+                    .help("Next")
+                }
             }
 
-            // Info bar
-            if !viewModel.viewerInfoText.isEmpty {
+            // Bottom info bar
+            HStack {
                 Text(viewModel.viewerInfoText)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.textSecondary)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.textDim)
                     .lineLimit(1)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.bgMedium)
+                Spacer()
+                Text("Navigate  |  +/- zoom  |  Space play  |  Tab mode  |  Esc close")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.textDim)
+                    .opacity(0.6)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(Color.bgSurface)
+            .overlay(alignment: .top) {
+                Rectangle().fill(Color.borderSubtle).frame(height: 1)
             }
         }
-        .background(Color.bgDark)
+        .background(Color.bgBase)
     }
 
     // MARK: - Toolbar
 
     private var viewerToolbar: some View {
         HStack(spacing: 8) {
-            // Navigation
-            Button { viewModel.viewerPrevious() } label: {
-                Image(systemName: "chevron.left")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textPrimary)
-
-            Button { viewModel.viewerNext() } label: {
-                Image(systemName: "chevron.right")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textPrimary)
+            // Info text
+            Text(viewModel.viewerInfoText)
+                .font(.system(size: 10))
+                .foregroundStyle(Color.textDim)
+                .lineLimit(1)
 
             Spacer()
 
             // Zoom controls
             Button { viewModel.viewerZoomOut() } label: {
                 Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textPrimary)
+            .buttonStyle(IconButtonStyle())
+            .help("Zoom out (-)")
 
             Text("\(Int(viewModel.viewerZoom * 100))%")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Color.textSecondary)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(Color.textDim)
                 .frame(width: 45)
 
             Button { viewModel.viewerZoomIn() } label: {
                 Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textPrimary)
+            .buttonStyle(IconButtonStyle())
+            .help("Zoom in (+)")
 
             Button { viewModel.viewerZoomReset() } label: {
-                Image(systemName: "arrow.counterclockwise")
+                Text("1:1")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.textDim)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textPrimary)
-            .help("Reset zoom")
+            .buttonStyle(IconButtonStyle())
+            .help("Reset zoom (0)")
 
-            Spacer()
+            // Copy current photo
+            Button {
+                Task { await viewModel.copyCurrentPhoto() }
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 13))
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Copy current photo to destination (C)")
 
             // Close
             Button { viewModel.closeViewer() } label: {
                 Image(systemName: "xmark")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.textDim)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textSecondary)
+            .buttonStyle(IconButtonStyle())
+            .help("Close viewer (Esc)")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color.bgMedium)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color.bgSurface)
         .overlay(alignment: .bottom) {
-            Divider()
+            Rectangle().fill(Color.borderSubtle).frame(height: 1)
         }
     }
 

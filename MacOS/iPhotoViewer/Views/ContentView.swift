@@ -11,7 +11,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             // Background
-            Color.bgDark
+            Color.bgBase
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -158,19 +158,33 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Color Extensions
+// MARK: - Color Extensions (warm dark theme matching Windows)
 
 extension Color {
-    static let bgDark = Color(red: 0.118, green: 0.118, blue: 0.118)       // #1E1E1E
-    static let bgMedium = Color(red: 0.176, green: 0.176, blue: 0.176)     // #2D2D2D
-    static let bgLight = Color(red: 0.235, green: 0.235, blue: 0.235)      // #3C3C3C
-    static let bgHover = Color(red: 0.290, green: 0.290, blue: 0.290)      // #4A4A4A
-    static let accent = Color(red: 0.161, green: 0.475, blue: 1.0)         // #2979FF
-    static let accentLight = Color(red: 0.267, green: 0.541, blue: 1.0)    // #448AFF
-    static let textPrimary = Color(red: 0.925, green: 0.925, blue: 0.925)  // #ECECEC
-    static let textSecondary = Color(red: 0.6, green: 0.6, blue: 0.6)      // #999999
-    static let textDim = Color(red: 0.4, green: 0.4, blue: 0.4)            // #666666
-    static let borderColor = Color(red: 0.251, green: 0.251, blue: 0.251)  // #404040
-    static let dangerColor = Color(red: 0.898, green: 0.224, blue: 0.208)  // #E53935
-    static let successColor = Color(red: 0.298, green: 0.686, blue: 0.314) // #4CAF50
+    // Backgrounds
+    static let bgBase = Color(red: 0.078, green: 0.071, blue: 0.086)       // #141216
+    static let bgSurface = Color(red: 0.110, green: 0.102, blue: 0.122)    // #1C1A1F
+    static let bgElevated = Color(red: 0.145, green: 0.133, blue: 0.161)   // #252229
+    static let bgCard = Color(red: 0.165, green: 0.153, blue: 0.188)       // #2A2730
+    static let bgHover = Color(red: 0.208, green: 0.184, blue: 0.227)      // #352F3A
+
+    // Accent (warm amber/terracotta)
+    static let accent = Color(red: 0.910, green: 0.576, blue: 0.353)       // #E8935A
+    static let accentLight = Color(red: 0.941, green: 0.659, blue: 0.439)  // #F0A870
+    static let accentDim = Color(red: 0.690, green: 0.408, blue: 0.188)    // #B06830
+    static let accentSubtle = Color(red: 0.910, green: 0.576, blue: 0.353).opacity(0.15)
+
+    // Text
+    static let textPrimary = Color(red: 0.941, green: 0.929, blue: 0.910)  // #F0EDE8
+    static let textSecondary = Color(red: 0.659, green: 0.627, blue: 0.690) // #A8A0B0
+    static let textDim = Color(red: 0.439, green: 0.408, blue: 0.471)      // #706878
+    static let textOnAccent = Color(red: 0.102, green: 0.063, blue: 0.094) // #1A1018
+
+    // Borders
+    static let borderSubtle = Color.white.opacity(0.19)
+    static let borderMedium = Color.white.opacity(0.25)
+
+    // Semantics
+    static let successColor = Color(red: 0.431, green: 0.796, blue: 0.545) // #6ECB8B
+    static let dangerColor = Color(red: 0.910, green: 0.353, blue: 0.435)  // #E85A6F
 }

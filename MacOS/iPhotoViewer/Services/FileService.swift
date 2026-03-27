@@ -58,6 +58,11 @@ actor FileService {
                 isLocal: true
             )
 
+            // Read video rotation from track header during scanning
+            if item.isVideo {
+                item.videoRotation = Self.getVideoRotation(filePath: fileURL.path)
+            }
+
             results.append(item)
 
             if scanned % 50 == 0 {
@@ -177,6 +182,74 @@ actor FileService {
             return image
         }
         return result
+    }
+
+    // MARK: - Video Rotation Detection
+
+    /// Reads the rotation of a video file from the tkhd (track header) box
+    /// transformation matrix in MP4/MOV container structure.
+    /// Returns degrees (0, 90, 180, 270).
+    nonisolated static func getVideoRotation(filePath: String) -> Int {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath),
+                                   options: [.mappedIfSafe]) else {
+            return 0
+        }
+
+        let bufferSize = min(data.count, 262144) // Read up to 256KB
+        let buffer = data.prefix(bufferSize)
+        return findTkhdRotation(in: buffer)
+    }
+
+    /// Searches for the tkhd box in the buffer and extracts the rotation
+    /// from the transformation matrix.
+    /// The matrix is 3x3 fixed-point 16.16, at offset 40 (v0) or 52 (v1) from tkhd start.
+    private nonisolated static func findTkhdRotation(in data: Data) -> Int {
+        let bytes = Array(data)
+        let count = bytes.count
+
+        // Search for "tkhd" box type
+        for i in 0..<(count - 4) {
+            guard bytes[i] == 0x74,     // 't'
+                  bytes[i+1] == 0x6B,   // 'k'
+                  bytes[i+2] == 0x68,   // 'h'
+                  bytes[i+3] == 0x64    // 'd'
+            else { continue }
+
+            // Content starts right after the type field
+            let tkhdStart = i + 4
+            guard tkhdStart + 84 <= count else { continue }
+
+            let version = bytes[tkhdStart]
+            // Matrix offset: v0 = 40, v1 = 52 from content start
+            let matrixOffset = tkhdStart + (version == 0 ? 40 : 52)
+            guard matrixOffset + 36 <= count else { continue }
+
+            // matrix[0][0] (a) and matrix[0][1] (b) are fixed-point 16.16
+            let a = readBigEndianInt32(bytes, at: matrixOffset)
+            let b = readBigEndianInt32(bytes, at: matrixOffset + 4)
+
+            let aVal = Double(a) / 65536.0
+            let bVal = Double(b) / 65536.0
+
+            let angle = atan2(bVal, aVal) * (180.0 / .pi)
+            let rotation = (Int(angle.rounded()) + 360) % 360
+
+            // Normalize to 0, 90, 180, 270
+            if rotation >= 45 && rotation < 135 { return 90 }
+            if rotation >= 135 && rotation < 225 { return 180 }
+            if rotation >= 225 && rotation < 315 { return 270 }
+            return 0
+        }
+
+        return 0
+    }
+
+    /// Reads a big-endian Int32 from a byte array.
+    private nonisolated static func readBigEndianInt32(_ bytes: [UInt8], at offset: Int) -> Int32 {
+        return Int32(bytes[offset]) << 24
+             | Int32(bytes[offset + 1]) << 16
+             | Int32(bytes[offset + 2]) << 8
+             | Int32(bytes[offset + 3])
     }
 
     // MARK: - File Operations

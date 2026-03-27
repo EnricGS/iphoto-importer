@@ -1,120 +1,188 @@
 import SwiftUI
 
-/// Top toolbar with folder controls, view mode toggle, and import button.
+/// Top toolbar with folder controls, open folder list, and destination indicator.
+/// Split/Import buttons are now in the ThumbnailGridView (above grid only).
 struct ToolbarView: View {
     @Bindable var viewModel: MainViewModel
 
     var body: some View {
         HStack(spacing: 12) {
             // App icon and title
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 18))
-                .foregroundStyle(Color.accent)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.accentSubtle)
+                    .frame(width: 32, height: 32)
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.accent)
+            }
 
             Text("iPhoto Viewer")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.textPrimary)
+                .opacity(0.9)
 
             Spacer().frame(width: 8)
 
-            // Open folder button
-            Button {
-                viewModel.openFolder()
-            } label: {
-                Label("Open Folder", systemImage: "folder.badge.plus")
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .keyboardShortcut("o", modifiers: .command)
+            // Folder buttons group
+            HStack(spacing: 2) {
+                // Add source folder
+                Button {
+                    viewModel.openFolder()
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(ToolbarIconButtonStyle())
+                .help("Add source folder (Cmd+O)")
+                .keyboardShortcut("o", modifiers: .command)
 
-            // Destination folder button
-            Button {
-                viewModel.setDestinationFolder()
-            } label: {
-                Label("Destination", systemImage: "arrow.right.doc.on.clipboard")
+                Divider()
+                    .frame(height: 18)
+                    .padding(.horizontal, 2)
+
+                // Set destination folder
+                Button {
+                    viewModel.setDestinationFolder()
+                } label: {
+                    Image(systemName: "arrow.right.doc.on.clipboard")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(ToolbarIconButtonStyle())
+                .help("Set destination folder for copies")
             }
-            .buttonStyle(ToolbarButtonStyle())
+            .padding(2)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            // Clear all folders button
+            if viewModel.openFolderCount > 0 {
+                Button {
+                    viewModel.clearAllFolders()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("Clear all folders")
+            }
+
+            // Separator
+            if viewModel.openFolderCount > 0 {
+                Divider()
+                    .frame(height: 20)
+            }
+
+            // Open folders list
+            if viewModel.openFolderCount > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.textPrimary)
+
+                    ForEach(viewModel.openFolders, id: \.self) { folder in
+                        HStack(spacing: 4) {
+                            Text((folder as NSString).lastPathComponent)
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.textSecondary)
+                                .lineLimit(1)
+                                .frame(maxWidth: 160)
+                                .help(folder)
+
+                            Button {
+                                viewModel.removeFolder(folder)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(Color.textDim)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove folder")
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
 
             // Destination folder indicator
             if viewModel.hasDestinationFolder {
-                Text(viewModel.destinationFolder ?? "")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.successColor)
-                    .italic()
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 200)
-                    .help(viewModel.destinationFolder ?? "")
+                Divider()
+                    .frame(height: 20)
 
-                Button {
-                    viewModel.clearDestinationFolder()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.textSecondary)
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.right.doc.on.clipboard")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.successColor)
+
+                    Text((viewModel.destinationFolder ?? "") as String)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.successColor)
+                        .italic()
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 180)
+                        .help(viewModel.destinationFolder ?? "")
+
+                    Button {
+                        viewModel.clearDestinationFolder()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear destination folder")
                 }
-                .buttonStyle(.plain)
-                .help("Clear destination folder")
-            }
-
-            // Current folder path
-            if let folderPath = viewModel.currentFolderPath {
-                Text(folderPath)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 500)
             }
 
             Spacer()
-
-            // Media filter picker
-            Picker("Filter", selection: $viewModel.mediaFilter) {
-                ForEach(MediaFilter.allCases, id: \.self) { filter in
-                    Text(filter.rawValue).tag(filter)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 180)
-
-            // View mode toggle
-            Button {
-                viewModel.toggleViewMode()
-            } label: {
-                Label(viewModel.viewMode.label, systemImage: viewModel.isSplitMode ? "rectangle.split.2x1" : "rectangle")
-            }
-            .buttonStyle(ToolbarButtonStyle())
-            .help("Toggle Split/Toggle mode (Tab)")
-
-            // Import button
-            Button {
-                viewModel.toggleImportPanel()
-            } label: {
-                Label("Import", systemImage: "square.and.arrow.down")
-            }
-            .buttonStyle(ToolbarButtonStyle())
-            .help("Import from device (MTP)")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.bgMedium)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.bgSurface)
         .overlay(alignment: .bottom) {
-            Divider()
+            Rectangle().fill(Color.borderSubtle).frame(height: 1)
         }
     }
 }
 
 // MARK: - Button Styles
 
+struct ToolbarIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.textPrimary)
+            .padding(8)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+    }
+}
+
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .foregroundStyle(Color.textOnAccent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
             .background(Color.accent)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+    }
+}
+
+struct PrimaryIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.textOnAccent)
+            .padding(8)
+            .background(Color.accent)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .opacity(configuration.isPressed ? 0.85 : 1.0)
     }
 }
@@ -124,10 +192,10 @@ struct ToolbarButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 12))
             .foregroundStyle(Color.textPrimary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.bgLight)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .opacity(configuration.isPressed ? 0.85 : 1.0)
     }
 }
@@ -138,9 +206,19 @@ struct DangerButtonStyle: ButtonStyle {
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             .background(Color.dangerColor)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .opacity(configuration.isPressed ? 0.85 : 1.0)
+    }
+}
+
+struct IconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.textPrimary)
+            .padding(6)
+            .background(configuration.isPressed ? Color.bgHover : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }

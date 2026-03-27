@@ -14,10 +14,3 @@ enum ViewMode: String, CaseIterable {
         }
     }
 }
-
-/// Filter for the type of media shown in the grid.
-enum MediaFilter: String, CaseIterable {
-    case all = "All"
-    case photos = "Photos"
-    case videos = "Videos"
-}

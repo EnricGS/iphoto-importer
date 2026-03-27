@@ -33,14 +33,15 @@ struct ViewerOverlayView: View {
                     viewModel.viewerPrevious()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 50, height: 100)
+                        .frame(width: 48, height: 80)
                         .background(Color.black.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, 12)
+                .opacity(0.5)
+                .padding(.leading, 16)
 
                 Spacer()
 
@@ -49,29 +50,24 @@ struct ViewerOverlayView: View {
                     viewModel.viewerNext()
                 } label: {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 50, height: 100)
+                        .frame(width: 48, height: 80)
                         .background(Color.black.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
-                .padding(.trailing, 12)
+                .opacity(0.5)
+                .padding(.trailing, 16)
             }
 
-            // Top bar: close button and info
+            // Top bar
             VStack {
-                HStack {
-                    // Close button
-                    Button {
-                        viewModel.closeViewer()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(12)
+                HStack(spacing: 8) {
+                    // Info text
+                    Text(viewModel.viewerInfoText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.textSecondary)
 
                     Spacer()
 
@@ -84,9 +80,9 @@ struct ViewerOverlayView: View {
                         .buttonStyle(.plain)
 
                         Text("\(Int(viewModel.viewerZoom * 100))%")
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.8))
-                            .frame(width: 50)
+                            .frame(width: 45)
 
                         Button { viewModel.viewerZoomIn() } label: {
                             Image(systemName: "plus.magnifyingglass")
@@ -95,7 +91,8 @@ struct ViewerOverlayView: View {
                         .buttonStyle(.plain)
 
                         Button { viewModel.viewerZoomReset() } label: {
-                            Image(systemName: "arrow.counterclockwise")
+                            Text("1:1")
+                                .font(.system(size: 11))
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
@@ -108,24 +105,59 @@ struct ViewerOverlayView: View {
                         .buttonStyle(.plain)
                         .help("Fit to screen (F)")
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(12)
+
+                    // Copy current photo
+                    Button {
+                        Task { await viewModel.copyCurrentPhoto() }
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy current photo to destination (C)")
+
+                    // Close button
+                    Button {
+                        viewModel.closeViewer()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close (Esc)")
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 0.078, green: 0.071, blue: 0.086).opacity(0.75), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
 
                 Spacer()
 
                 // Bottom info bar
-                Text(viewModel.viewerInfoText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(.bottom, 12)
+                HStack {
+                    Spacer()
+                    Text("Navigate  |  +/- zoom  |  Tab mode  |  Esc close")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.textDim)
+                        .opacity(0.6)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    LinearGradient(
+                        colors: [.clear, Color(red: 0.078, green: 0.071, blue: 0.086).opacity(0.75)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
             }
         }
     }

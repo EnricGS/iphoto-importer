@@ -20,6 +20,9 @@ final class PhotoItem: Identifiable, Hashable {
     var pixelWidth: Int = 0
     var pixelHeight: Int = 0
 
+    /// Video rotation in degrees (0, 90, 180, 270) from track header metadata.
+    var videoRotation: Int = 0
+
     // MARK: - UI State
 
     var isSelected: Bool = false

@@ -9,16 +9,22 @@ struct ActionBarView: View {
         HStack(spacing: 16) {
             // Selection info
             HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
+                Text("\(viewModel.selectedPhotosCount)")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                Text("\(viewModel.selectedPhotosCount) selected")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.textPrimary)
-
-                Text("(\(String(format: "%.1f", viewModel.totalSelectedSizeMB)) MB)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.textSecondary)
+                HStack(spacing: 2) {
+                    Text("selected")
+                    Text("  ·  ")
+                    Text(String(format: "%.1f", viewModel.totalSelectedSizeMB))
+                    Text("MB")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(Color.textSecondary)
             }
 
             Spacer()
@@ -30,47 +36,57 @@ struct ActionBarView: View {
                     .tint(Color.accent)
             }
 
-            // Action buttons
+            // Action buttons (icon only with tooltips)
             Button {
                 Task { await viewModel.copySelected() }
             } label: {
-                Label("Copy", systemImage: "doc.on.doc")
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 14))
             }
-            .buttonStyle(ToolbarButtonStyle())
+            .buttonStyle(ToolbarIconButtonStyle())
             .disabled(viewModel.isCopying)
+            .help("Copy selected to another folder")
 
             Button {
                 Task { await viewModel.moveSelected() }
             } label: {
-                Label("Move", systemImage: "folder")
+                Image(systemName: "folder")
+                    .font(.system(size: 14))
             }
-            .buttonStyle(ToolbarButtonStyle())
+            .buttonStyle(ToolbarIconButtonStyle())
             .disabled(viewModel.isCopying)
+            .help("Move selected to another folder")
 
             Button {
                 Task { await viewModel.deleteSelected() }
             } label: {
-                Label("Delete", systemImage: "trash")
+                Image(systemName: "trash")
+                    .font(.system(size: 14))
             }
             .buttonStyle(DangerButtonStyle())
             .disabled(viewModel.isCopying)
             .keyboardShortcut(.delete, modifiers: [])
+            .help("Delete selected (Del)")
+
+            Divider()
+                .frame(height: 20)
 
             // Deselect all
             Button {
                 viewModel.deselectAll()
             } label: {
                 Image(systemName: "xmark.circle")
-                    .foregroundStyle(Color.textSecondary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.textPrimary)
             }
             .buttonStyle(.plain)
-            .help("Deselect all")
+            .help("Deselect all (Cmd+D)")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.bgMedium)
+        .padding(.vertical, 10)
+        .background(Color.bgSurface.opacity(0.95))
         .overlay(alignment: .top) {
-            Divider()
+            Rectangle().fill(Color.accent).frame(height: 2)
         }
     }
 }

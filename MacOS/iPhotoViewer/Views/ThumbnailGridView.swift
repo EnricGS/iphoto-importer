@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Thumbnail grid with virtualized layout, size slider, and multi-selection.
+/// Thumbnail grid with virtualized layout, size slider, filter toggles, and multi-selection.
+/// Split/Import buttons are positioned above the grid only (not spanning the viewer).
 struct ThumbnailGridView: View {
     @Bindable var viewModel: MainViewModel
 
@@ -11,8 +12,13 @@ struct ThumbnailGridView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Grid controls (slider, counters)
-            gridControls
+            // Split/Import buttons bar (always visible, above grid only)
+            splitImportBar
+
+            // Grid controls (filter toggles, counter, slider)
+            if !viewModel.photos.isEmpty {
+                gridControls
+            }
 
             // Thumbnail grid
             if viewModel.photos.isEmpty && !viewModel.isLoading {
@@ -21,7 +27,41 @@ struct ThumbnailGridView: View {
                 gridContent
             }
         }
-        .background(Color.bgDark)
+        .background(Color.bgBase)
+    }
+
+    // MARK: - Split/Import Bar (above grid only)
+
+    private var splitImportBar: some View {
+        HStack(spacing: 4) {
+            Spacer()
+
+            // View mode toggle
+            Button {
+                viewModel.toggleViewMode()
+            } label: {
+                Image(systemName: viewModel.isSplitMode ? "rectangle.split.2x1" : "rectangle")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(ToolbarIconButtonStyle())
+            .help("Toggle Split/Toggle mode (Tab)")
+
+            // Import button (phone icon)
+            Button {
+                viewModel.toggleImportPanel()
+            } label: {
+                Image(systemName: "iphone.and.arrow.forward")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(ToolbarIconButtonStyle())
+            .help("Import from device (iPhone)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.bgSurface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.borderSubtle).frame(height: 1)
+        }
     }
 
     // MARK: - Grid Controls
@@ -29,31 +69,111 @@ struct ThumbnailGridView: View {
     private var gridControls: some View {
         HStack(spacing: 12) {
             // Photo count
-            Text("\(viewModel.filteredPhotos.count) items")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.textSecondary)
+            HStack(spacing: 2) {
+                Text("\(viewModel.photos.count)")
+                    .foregroundStyle(Color.textSecondary)
+                Text("elements")
+                    .foregroundStyle(Color.textDim)
+            }
+            .font(.system(size: 12))
 
             Spacer()
 
-            // Size labels
-            Text("S")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.textDim)
+            // Quick selection
+            HStack(spacing: 4) {
+                Button {
+                    viewModel.selectAll()
+                } label: {
+                    Image(systemName: "checkmark.square")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Select all (Cmd+A)")
+
+                Button {
+                    viewModel.deselectAll()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Deselect all (Cmd+D)")
+            }
+
+            // Filter toggles (pill style, matching Windows)
+            HStack(spacing: 0) {
+                // Photos filter toggle
+                Button {
+                    viewModel.filterPhotos.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 11))
+                        Text("\(viewModel.photoCount)")
+                            .font(.system(size: 11))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(viewModel.filterPhotos ? Color.accentSubtle : Color.clear)
+                    .foregroundStyle(viewModel.filterPhotos ? Color.accent : Color.textDim)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(viewModel.filterPhotos ? Color.accentDim : Color.clear, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help("Show/hide photos")
+
+                Divider().frame(height: 14)
+
+                // Videos filter toggle
+                Button {
+                    viewModel.filterVideos.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "video")
+                            .font(.system(size: 11))
+                        Text("\(viewModel.videoCount)")
+                            .font(.system(size: 11))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(viewModel.filterVideos ? Color.accentSubtle : Color.clear)
+                    .foregroundStyle(viewModel.filterVideos ? Color.accent : Color.textDim)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(viewModel.filterVideos ? Color.accentDim : Color.clear, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help("Show/hide videos")
+            }
+            .padding(2)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             // Thumbnail size slider
-            Slider(value: $viewModel.thumbnailSize, in: 80...400, step: 10)
-                .frame(width: 150)
-                .tint(Color.accent)
+            HStack(spacing: 6) {
+                Image(systemName: "square.grid.3x3")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.textPrimary)
 
-            Text("XL")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.textDim)
+                Slider(value: $viewModel.thumbnailSize, in: 80...400, step: 10)
+                    .frame(width: 100)
+                    .tint(Color.accent)
+
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.textPrimary)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.bgMedium)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.bgSurface)
         .overlay(alignment: .bottom) {
-            Divider()
+            Rectangle().fill(Color.borderSubtle).frame(height: 1)
         }
     }
 
@@ -62,16 +182,37 @@ struct ThumbnailGridView: View {
     private var emptyState: some View {
         VStack(spacing: 16) {
             Spacer()
-            Image(systemName: "photo.on.rectangle")
-                .font(.system(size: 48))
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.accentSubtle)
+                    .frame(width: 72, height: 72)
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 36))
+                    .foregroundStyle(Color.accent)
+            }
+
+            Text("Add a folder to view images")
+                .font(.system(size: 18, weight: .light))
+                .foregroundStyle(Color.textPrimary)
+                .opacity(0.8)
+
+            Text("or import photos from a device")
+                .font(.system(size: 13))
                 .foregroundStyle(Color.textDim)
-            Text("Open a folder to start viewing images")
-                .font(.system(size: 16))
-                .foregroundStyle(Color.textSecondary)
-            Button("Open Folder") {
+
+            Button {
                 viewModel.openFolder()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16))
+                    Text("Add Folder")
+                }
             }
             .buttonStyle(PrimaryButtonStyle())
+            .padding(.top, 8)
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -83,7 +224,7 @@ struct ThumbnailGridView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(Array(viewModel.filteredPhotos.enumerated()), id: \.element.id) { index, photo in
+                    ForEach(Array(viewModel.photos.enumerated()), id: \.element.id) { index, photo in
                         ThumbnailCell(
                             photo: photo,
                             size: viewModel.thumbnailSize,
@@ -96,11 +237,11 @@ struct ThumbnailGridView: View {
                         .id(photo.id)
                     }
                 }
-                .padding(4)
+                .padding(8)
             }
             .onChange(of: viewModel.scrollToIndex) { _, newValue in
-                if let index = newValue, index < viewModel.filteredPhotos.count {
-                    let item = viewModel.filteredPhotos[index]
+                if let index = newValue, index < viewModel.photos.count {
+                    let item = viewModel.photos[index]
                     withAnimation(.easeInOut(duration: 0.3)) {
                         proxy.scrollTo(item.id, anchor: .center)
                     }
@@ -121,7 +262,7 @@ struct ThumbnailCell: View {
     @State private var isHovering = false
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack(alignment: .bottom) {
             // Thumbnail image
             Group {
                 if let thumbnail = photo.thumbnail {
@@ -131,16 +272,18 @@ struct ThumbnailCell: View {
                 } else {
                     // Placeholder while loading
                     Rectangle()
-                        .fill(Color.bgLight)
+                        .fill(Color.bgElevated)
                         .overlay {
                             if photo.isVideo {
                                 Image(systemName: "video")
                                     .font(.system(size: 24))
                                     .foregroundStyle(Color.textDim)
+                                    .opacity(0.5)
                             } else {
                                 Image(systemName: "photo")
                                     .font(.system(size: 24))
                                     .foregroundStyle(Color.textDim)
+                                    .opacity(0.5)
                             }
                         }
                 }
@@ -148,28 +291,47 @@ struct ThumbnailCell: View {
             .frame(width: size, height: size)
             .clipped()
 
-            // Video indicator
-            if photo.isVideo {
+            // Video indicator (center)
+            if photo.isVideo, photo.thumbnail != nil {
                 Image(systemName: "play.circle.fill")
-                    .font(.system(size: 20))
+                    .font(.system(size: 22))
                     .foregroundStyle(.white)
-                    .shadow(radius: 2)
-                    .padding(4)
+                    .shadow(color: .black.opacity(0.5), radius: 2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            // Selection checkbox
+            // Gradient overlay at bottom
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.6)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 36)
+
+            // Filename at bottom
+            Text(photo.fileName)
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.82))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Selection checkbox (top-left)
             if photo.isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 16))
                     .foregroundStyle(Color.accent)
                     .background(Circle().fill(.white).padding(2))
-                    .padding(4)
+                    .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(borderColor, lineWidth: borderWidth)
         }
         .shadow(color: .black.opacity(isHovering ? 0.3 : 0), radius: 4)
@@ -177,7 +339,6 @@ struct ThumbnailCell: View {
             isHovering = hovering
         }
         .onTapGesture {
-            // Simple tap (no modifiers)
             onTap([])
         }
         .simultaneousGesture(

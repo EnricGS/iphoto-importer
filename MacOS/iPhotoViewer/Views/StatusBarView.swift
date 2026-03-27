@@ -22,7 +22,8 @@ struct StatusBarView: View {
             // Status message
             Text(viewModel.statusMessage)
                 .font(.system(size: 11))
-                .foregroundStyle(viewModel.hasError ? Color.dangerColor : Color.textSecondary)
+                .foregroundStyle(viewModel.hasError ? Color.dangerColor : Color.textDim)
+                .fontWeight(viewModel.hasError ? .semibold : .regular)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -31,7 +32,7 @@ struct StatusBarView: View {
             // Copy progress bar
             if viewModel.isCopying {
                 ProgressView(value: viewModel.copyProgress, total: 100)
-                    .frame(width: 100)
+                    .frame(width: 120)
                     .tint(Color.accent)
 
                 Text("\(Int(viewModel.copyProgress))%")
@@ -39,11 +40,11 @@ struct StatusBarView: View {
                     .foregroundStyle(Color.textSecondary)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(Color.bgMedium)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(Color.bgSurface)
         .overlay(alignment: .top) {
-            Divider()
+            Rectangle().fill(Color.borderSubtle).frame(height: 1)
         }
     }
 }
