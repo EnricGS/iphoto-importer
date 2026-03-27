@@ -523,8 +523,22 @@ public partial class MainWindow : Window
     /// <summary>
     /// Inicia la selecció amb arrossegament si el clic és sobre espai buit de la graella.
     /// </summary>
+    private bool IsClickOnScrollBar(MouseButtonEventArgs e)
+    {
+        var hit = e.OriginalSource as DependencyObject;
+        while (hit != null)
+        {
+            if (hit is System.Windows.Controls.Primitives.ScrollBar) return true;
+            hit = VisualTreeHelper.GetParent(hit);
+        }
+        return false;
+    }
+
     private void ThumbnailArea_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // No interceptar clics sobre el scrollbar
+        if (IsClickOnScrollBar(e)) return;
+
         // No iniciar rubber band si el clic és sobre una miniatura
         if (IsClickOnThumbnail(e)) return;
 
