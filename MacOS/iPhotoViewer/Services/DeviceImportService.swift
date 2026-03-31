@@ -60,6 +60,7 @@ final class DeviceImportService: NSObject {
     private var downloadedCount = 0
     private var totalToDownload = 0
     private var downloadContinuation: CheckedContinuation<Void, Never>?
+    private var tempDownloadContinuations: [String: CheckedContinuation<Void, Never>] = [:]
     private var sessionContinuation: CheckedContinuation<Bool, Never>?
     private var thumbnailContinuations: [String: CheckedContinuation<CGImage?, Never>] = [:]
     private var deleteContinuation: CheckedContinuation<Void, Never>?
@@ -333,6 +334,48 @@ final class DeviceImportService: NSObject {
         statusMessage = "\(files.count) file(s) deleted from device."
     }
 
+    /// Downloads a single file to a temp directory and returns the local path.
+    /// Used to show full-resolution images from device in browse mode.
+    /// Uses per-file continuations so concurrent downloads don't interfere.
+    func downloadTempFile(_ file: ICCameraFile) async -> String? {
+        guard let device = selectedDevice else { return nil }
+        let icDevice = device.icDevice
+
+        let tempDir = NSTemporaryDirectory() + "iPhotoViewer/"
+        try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+
+        let destURL = URL(fileURLWithPath: tempDir)
+        let options: [ICDownloadOption: Any] = [
+            .downloadsDirectoryURL: destURL,
+            .overwrite: true,
+        ]
+
+        let key = file.name ?? UUID().uuidString
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            tempDownloadContinuations[key] = cont
+            icDevice.requestDownloadFile(
+                file,
+                options: options,
+                downloadDelegate: self,
+                didDownloadSelector: #selector(handleDownloadComplete(_:error:options:contextInfo:)),
+                contextInfo: nil
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                if let self, let pending = self.tempDownloadContinuations.removeValue(forKey: key) {
+                    pending.resume()
+                }
+            }
+        }
+
+        let fileName = file.name ?? "unknown"
+        let filePath = tempDir + fileName
+        if FileManager.default.fileExists(atPath: filePath) {
+            return filePath
+        }
+        return nil
+    }
+
     /// Closes the active device session.
     func closeSession() {
         guard let device = selectedDevice else { return }
@@ -352,8 +395,15 @@ final class DeviceImportService: NSObject {
         contextInfo: UnsafeMutableRawPointer?
     ) {
         Task { @MainActor in
-            downloadContinuation?.resume()
-            downloadContinuation = nil
+            // Check if this is a temp download (browse mode viewer)
+            let key = file.name ?? ""
+            if let cont = tempDownloadContinuations.removeValue(forKey: key) {
+                cont.resume()
+            } else {
+                // Import download (sequential)
+                downloadContinuation?.resume()
+                downloadContinuation = nil
+            }
         }
     }
 

@@ -24,6 +24,7 @@ final class MainViewModel {
 
     private var thumbnailTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
+    private var viewerDownloadTask: Task<Void, Never>?
 
     // MARK: - General State
 
@@ -74,6 +75,9 @@ final class MainViewModel {
             applyFilter()
         }
     }
+
+    /// Sort order: false = newest first, true = oldest first
+    var sortAscending: Bool = false
 
     /// Counts by type (for filter toggle labels)
     var photoCount: Int = 0
@@ -142,6 +146,14 @@ final class MainViewModel {
 
     var scrollToIndex: Int?
 
+    // MARK: - Sort
+
+    /// Toggles sort order between newest-first and oldest-first, then re-applies.
+    func toggleSortOrder() {
+        sortAscending.toggle()
+        applyFilter()
+    }
+
     // MARK: - Filter
 
     /// Applies the photo/video filter toggles to the photos collection.
@@ -161,9 +173,21 @@ final class MainViewModel {
             filtered = allPhotos
         }
 
-        for item in filtered {
+        let sorted = filtered.sorted { a, b in
+            let dateA = a.dateTaken ?? .distantPast
+            let dateB = b.dateTaken ?? .distantPast
+            return sortAscending ? dateA < dateB : dateA > dateB
+        }
+
+        for item in sorted {
             item.isSelected = false
             photos.append(item)
+        }
+
+        // In device browse mode, restart thumbnail loading for items
+        // that don't have thumbnails yet (handles reorder/filter changes)
+        if isDeviceBrowseMode {
+            loadDeviceThumbnails()
         }
 
         updateStatusMessage()
@@ -358,6 +382,8 @@ final class MainViewModel {
 
     func closeViewer() {
         prefetchTask?.cancel()
+        viewerDownloadTask?.cancel()
+        viewerDownloadTask = nil
         isViewerOpen = false
         viewerImage = nil
         viewerCurrentItem = nil
@@ -410,12 +436,41 @@ final class MainViewModel {
         viewerCurrentItem = item
         item.isHighlighted = true
 
-        // Device items: show thumbnail only, no full-res available
+        // Cancel any previous device download task
+        viewerDownloadTask?.cancel()
+        viewerDownloadTask = nil
+
+        // Device items: show thumbnail first, then download full-res
         if !item.isLocal {
             isViewingVideo = false
             viewerVideoURL = nil
-            viewerImage = item.thumbnail
+            // Show thumbnail if available; keep previous image as fallback
+            // so there's visual feedback during navigation
+            if let thumb = item.thumbnail {
+                viewerImage = thumb
+            }
             updateViewerInfo(for: item)
+
+            if let cameraFile = item.cameraFile {
+                viewerDownloadTask = Task {
+                    guard !Task.isCancelled else { return }
+                    if let localPath = await deviceService.downloadTempFile(cameraFile) {
+                        guard !Task.isCancelled, viewerCurrentItem == item else { return }
+                        let image = await Task.detached(priority: .userInitiated) { [fileService] in
+                            fileService.loadFullImage(at: localPath)
+                        }.value
+                        if let image, !Task.isCancelled, viewerCurrentItem == item {
+                            viewerImage = image
+                            if item.pixelWidth == 0 {
+                                let rep = image.representations.first
+                                item.pixelWidth = rep?.pixelsWide ?? Int(image.size.width)
+                                item.pixelHeight = rep?.pixelsHigh ?? Int(image.size.height)
+                            }
+                            updateViewerInfo(for: item)
+                        }
+                    }
+                }
+            }
             return
         }
 
@@ -623,6 +678,9 @@ final class MainViewModel {
                 photos[i].isSelected = true
                 selectedPhotos.insert(photos[i])
             }
+            // Ensure the clicked item itself is always selected
+            item.isSelected = true
+            selectedPhotos.insert(item)
         } else {
             toggleSelection(for: item)
         }
@@ -851,10 +909,14 @@ final class MainViewModel {
             closeViewer()
             isImportPanelOpen = false
 
-            // Set device photos in the grid
-            allPhotos = items
-            photoCount = items.filter { !$0.isVideo }.count
-            videoCount = items.filter { $0.isVideo }.count
+            // Set device photos in the grid (sorted by date)
+            allPhotos = items.sorted { a, b in
+                let dateA = a.dateTaken ?? .distantPast
+                let dateB = b.dateTaken ?? .distantPast
+                return sortAscending ? dateA < dateB : dateA > dateB
+            }
+            photoCount = allPhotos.filter { !$0.isVideo }.count
+            videoCount = allPhotos.filter { $0.isVideo }.count
             applyFilter()
 
             // Register disconnect callback
@@ -875,6 +937,7 @@ final class MainViewModel {
         thumbnailTask = Task {
             for photo in photosCopy {
                 guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
+                guard photo.thumbnail == nil else { continue }
                 if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
                     photo.thumbnail = thumb
                 }

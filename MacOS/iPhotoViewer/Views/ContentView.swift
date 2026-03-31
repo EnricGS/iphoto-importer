@@ -83,12 +83,6 @@ struct ContentView: View {
             return .handled
         }
 
-        // Escape: exit device browse mode first
-        if press.key == .escape && viewModel.isDeviceBrowseMode {
-            viewModel.exitDeviceBrowseMode()
-            return .handled
-        }
-
         // Viewer shortcuts (when viewer is active)
         let viewerActive = viewModel.isViewerOpen || viewModel.isSplitViewerVisible
         if viewerActive {
@@ -134,6 +128,12 @@ struct ContentView: View {
             if viewModel.isOverlayViewerVisible {
                 return .ignored
             }
+        }
+
+        // Escape: exit device browse mode (only when viewer is not open)
+        if press.key == .escape && viewModel.isDeviceBrowseMode {
+            viewModel.exitDeviceBrowseMode()
+            return .handled
         }
 
         // Grid shortcuts

@@ -189,6 +189,16 @@ struct ThumbnailGridView: View {
             .background(Color.bgElevated)
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
+            // Sort order toggle
+            Button {
+                viewModel.toggleSortOrder()
+            } label: {
+                Image(systemName: viewModel.sortAscending ? "arrow.up" : "arrow.down")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(IconButtonStyle())
+            .help(viewModel.sortAscending ? "Oldest first (click to reverse)" : "Newest first (click to reverse)")
+
             // Thumbnail size slider
             HStack(spacing: 6) {
                 Image(systemName: "square.grid.3x3")
@@ -503,16 +513,18 @@ struct ThumbnailCell: View {
             .frame(height: 36)
             .allowsHitTesting(false)
 
-            // Filename at bottom
-            Text(photo.fileName)
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.82))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .allowsHitTesting(false)
+            // Date label at bottom (Catalan month + year)
+            if let dateText = Self.catalanDateText(from: photo.dateTaken) {
+                Text(dateText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .allowsHitTesting(false)
+            }
 
             // Checkbox (top-left, always visible on hover or when selected)
             Image(systemName: photo.isSelected ? "checkmark.circle.fill" : "circle")
@@ -548,6 +560,19 @@ struct ThumbnailCell: View {
         .onHover { hovering in
             isHovering = hovering
         }
+    }
+
+    private static let catalanMonths = [
+        "Gener", "Febrer", "Març", "Abril", "Maig", "Juny",
+        "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"
+    ]
+
+    private static func catalanDateText(from date: Date?) -> String? {
+        guard let date else { return nil }
+        let calendar = Calendar.current
+        let month = calendar.component(.month, from: date)
+        let year = calendar.component(.year, from: date)
+        return "\(catalanMonths[month - 1]) \(year)"
     }
 
     private var borderColor: Color {
