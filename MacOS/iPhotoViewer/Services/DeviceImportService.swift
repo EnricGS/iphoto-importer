@@ -1,6 +1,21 @@
 import Foundation
 import AppKit
 import ImageCaptureCore
+import os.log
+
+private let logger = Logger(subsystem: "com.iphotoviewer", category: "import")
+
+private func logToFile(_ msg: String) {
+    let path = NSHomeDirectory() + "/iphoto_import.log"
+    let line = "\(Date()): \(msg)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(line.data(using: .utf8)!)
+        handle.closeFile()
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
 
 /// Real device import service using ImageCaptureCore framework.
 /// Detects connected iPhones and cameras via USB and imports photos/videos.
@@ -16,6 +31,10 @@ final class DeviceImportService: NSObject {
     var statusMessage: String = "Connect an iPhone or camera via USB."
     var importProgress: Double = 0
     var isImporting: Bool = false
+    var isBrowsing: Bool = false
+
+    /// Callback when device disconnects during browse mode.
+    var onDeviceDisconnected: (() -> Void)?
 
     // MARK: - Types
 
@@ -42,6 +61,8 @@ final class DeviceImportService: NSObject {
     private var totalToDownload = 0
     private var downloadContinuation: CheckedContinuation<Void, Never>?
     private var sessionContinuation: CheckedContinuation<Bool, Never>?
+    private var thumbnailContinuations: [String: CheckedContinuation<CGImage?, Never>] = [:]
+    private var deleteContinuation: CheckedContinuation<Void, Never>?
 
     // MARK: - Device Detection
 
@@ -60,7 +81,7 @@ final class DeviceImportService: NSObject {
         // Wait for devices to appear
         try? await Task.sleep(for: .seconds(3))
 
-        browser?.stop()
+        // Don't stop the browser — keep it alive so devices remain connected
         isScanning = false
 
         if devices.isEmpty {
@@ -86,14 +107,17 @@ final class DeviceImportService: NSObject {
 
         // Open session
         icDevice.delegate = self
+        logToFile("[Import] Requesting open session for \(device.name)...")
+
         let opened = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             sessionContinuation = cont
             icDevice.requestOpenSession()
         }
+        logToFile("[Import] Session opened: \(opened)")
 
         guard opened else {
             isImporting = false
-            throw DeviceImportError.importFailed("Could not open device session.")
+            throw DeviceImportError.importFailed("Could not open device session. Make sure the iPhone is unlocked and you tapped 'Trust'.")
         }
 
         // Wait for file enumeration
@@ -139,6 +163,15 @@ final class DeviceImportService: NSObject {
                     didDownloadSelector: #selector(handleDownloadComplete(_:error:options:contextInfo:)),
                     contextInfo: nil
                 )
+
+                // Timeout per file: 30 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                    if let self, let pending = self.downloadContinuation {
+                        self.downloadContinuation = nil
+                        logToFile("[Import] Download TIMEOUT for \(fileName)")
+                        pending.resume()
+                    }
+                }
             }
 
             progress(downloadedCount, totalToDownload, fileName)
@@ -150,6 +183,164 @@ final class DeviceImportService: NSObject {
         statusMessage = "\(downloadedCount) file(s) imported."
 
         return downloadedCount
+    }
+
+    // MARK: - Browse Device
+
+    /// Opens a session, enumerates media files and returns PhotoItems without downloading.
+    func browseDevice() async throws -> [PhotoItem] {
+        guard let device = selectedDevice else {
+            throw DeviceImportError.noDeviceSelected
+        }
+
+        let icDevice = device.icDevice
+        isBrowsing = true
+        statusMessage = "Connecting to \(device.name)..."
+
+        icDevice.delegate = self
+
+        // Retry up to 3 times — first attempt often fails while device initializes
+        var opened = false
+        for attempt in 1...3 {
+            logToFile("[Browse] Open session attempt \(attempt) for \(device.name)...")
+            statusMessage = "Connecting to \(device.name)... (attempt \(attempt))"
+
+            opened = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                sessionContinuation = cont
+                icDevice.requestOpenSession()
+            }
+            logToFile("[Browse] Attempt \(attempt) result: \(opened)")
+
+            if opened { break }
+            try? await Task.sleep(for: .seconds(2))
+        }
+
+        guard opened else {
+            isBrowsing = false
+            throw DeviceImportError.importFailed("Could not open device session. Make sure the iPhone is unlocked and you tapped 'Trust'.")
+        }
+
+        statusMessage = "Reading files from \(device.name)..."
+        try? await Task.sleep(for: .seconds(3))
+
+        let files = collectMediaFiles(from: icDevice)
+
+        if files.isEmpty {
+            isBrowsing = false
+            statusMessage = "No photos or videos found on device."
+            return []
+        }
+
+        let items = files.map { PhotoItem(cameraFile: $0, deviceId: device.id) }
+        statusMessage = "\(items.count) files found on \(device.name). Select photos to import."
+        return items
+    }
+
+    /// Requests a thumbnail from the device for a camera file.
+    func requestThumbnail(for file: ICCameraFile) async -> NSImage? {
+        // Check if thumbnail is already available on the item
+        if let thumb = file.thumbnail {
+            return NSImage(cgImage: thumb, size: NSSize(width: thumb.width, height: thumb.height))
+        }
+
+        let key = file.name ?? UUID().uuidString
+        let cgImage: CGImage? = await withCheckedContinuation { (cont: CheckedContinuation<CGImage?, Never>) in
+            thumbnailContinuations[key] = cont
+            file.requestThumbnail()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                if let self, let pending = self.thumbnailContinuations.removeValue(forKey: key) {
+                    pending.resume(returning: nil)
+                }
+            }
+        }
+
+        guard let cgImage else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    /// Imports only the specified files to a destination folder.
+    func importSelectedFiles(
+        _ files: [ICCameraFile],
+        to destination: String,
+        progress: @escaping @Sendable (Int, Int, String) -> Void
+    ) async -> Int {
+        guard let device = selectedDevice else { return 0 }
+        let icDevice = device.icDevice
+
+        isImporting = true
+        importProgress = 0
+        totalToDownload = files.count
+        downloadedCount = 0
+
+        try? FileManager.default.createDirectory(atPath: destination, withIntermediateDirectories: true)
+        let destURL = URL(fileURLWithPath: destination)
+        let options: [ICDownloadOption: Any] = [
+            .downloadsDirectoryURL: destURL,
+            .overwrite: false,
+        ]
+
+        for file in files {
+            downloadedCount += 1
+            let fileName = file.name ?? "unknown"
+            statusMessage = "Importing \(downloadedCount)/\(totalToDownload): \(fileName)"
+            importProgress = Double(downloadedCount) / Double(totalToDownload) * 100
+
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                self.downloadContinuation = cont
+                icDevice.requestDownloadFile(
+                    file,
+                    options: options,
+                    downloadDelegate: self,
+                    didDownloadSelector: #selector(handleDownloadComplete(_:error:options:contextInfo:)),
+                    contextInfo: nil
+                )
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                    if let self, let pending = self.downloadContinuation {
+                        self.downloadContinuation = nil
+                        pending.resume()
+                    }
+                }
+            }
+            progress(downloadedCount, totalToDownload, fileName)
+        }
+
+        isImporting = false
+        importProgress = 100
+        statusMessage = "\(downloadedCount) file(s) imported."
+        return downloadedCount
+    }
+
+    /// Deletes specified files from the device.
+    func deleteFiles(_ files: [ICCameraFile]) async {
+        guard let device = selectedDevice else { return }
+        let icDevice = device.icDevice
+
+        isImporting = true
+        statusMessage = "Deleting \(files.count) file(s) from \(device.name)..."
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            self.deleteContinuation = cont
+            icDevice.requestDeleteFiles(files)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(files.count) * 5 + 10) { [weak self] in
+                if let self, let pending = self.deleteContinuation {
+                    self.deleteContinuation = nil
+                    pending.resume()
+                }
+            }
+        }
+
+        isImporting = false
+        statusMessage = "\(files.count) file(s) deleted from device."
+    }
+
+    /// Closes the active device session.
+    func closeSession() {
+        guard let device = selectedDevice else { return }
+        let icDevice = device.icDevice
+        if icDevice.hasOpenSession {
+            icDevice.requestCloseSession()
+        }
+        isBrowsing = false
     }
 
     // MARK: - Download callback
@@ -195,6 +386,9 @@ extension DeviceImportService: ICDeviceBrowserDelegate {
         Task { @MainActor in
             guard let cameraDevice = device as? ICCameraDevice else { return }
 
+            // Set delegate early so session events are captured
+            cameraDevice.delegate = self
+
             let type: DeviceInfo.DeviceType
             let name = device.name ?? "Unknown"
             if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
@@ -230,10 +424,43 @@ extension DeviceImportService: ICDeviceBrowserDelegate {
 
 extension DeviceImportService: ICCameraDeviceDownloadDelegate {}
 
+// MARK: - ICCameraDeviceDelegate
+
+extension DeviceImportService: ICCameraDeviceDelegate {
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didAdd items: [ICCameraItem]) {}
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didRemove items: [ICCameraItem]) {}
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceiveThumbnail thumbnail: CGImage?, for item: ICCameraItem, error: (any Error)?) {
+        Task { @MainActor in
+            let key = item.name ?? ""
+            if let cont = thumbnailContinuations.removeValue(forKey: key) {
+                cont.resume(returning: thumbnail)
+            }
+        }
+    }
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didCompleteDeleteFilesWithError error: (any Error)?) {
+        Task { @MainActor in
+            deleteContinuation?.resume()
+            deleteContinuation = nil
+        }
+    }
+    nonisolated func cameraDeviceDidChangeCapability(_ camera: ICCameraDevice) {}
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didRenameItems items: [ICCameraItem]) {}
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceiveMetadata metadata: [AnyHashable : Any]?, for item: ICCameraItem, error: (any Error)?) {}
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceivePTPEvent eventData: Data) {}
+    nonisolated func deviceDidBecomeReady(withCompleteContentCatalog device: ICCameraDevice) {}
+    nonisolated func cameraDeviceDidEnableAccessRestriction(_ device: ICDevice) {}
+    nonisolated func cameraDeviceDidRemoveAccessRestriction(_ device: ICDevice) {}
+}
+
 // MARK: - ICDeviceDelegate
 
 extension DeviceImportService: ICDeviceDelegate {
     nonisolated func device(_ device: ICDevice, didOpenSessionWithError error: (any Error)?) {
+        if let error {
+            logToFile("[Import] Open session ERROR: \(error.localizedDescription)")
+        } else {
+            logToFile("[Import] Open session SUCCESS")
+        }
         Task { @MainActor in
             sessionContinuation?.resume(returning: error == nil)
             sessionContinuation = nil
@@ -243,7 +470,13 @@ extension DeviceImportService: ICDeviceDelegate {
     nonisolated func device(_ device: ICDevice, didCloseSessionWithError error: (any Error)?) {}
     nonisolated func didRemove(_ device: ICDevice) {
         Task { @MainActor in
-            devices.removeAll { $0.id == (device.uuidString ?? "") }
+            let removedId = device.uuidString ?? ""
+            let wasBrowsing = isBrowsing && selectedDevice?.id == removedId
+            devices.removeAll { $0.id == removedId }
+            if wasBrowsing {
+                isBrowsing = false
+                onDeviceDisconnected?()
+            }
         }
     }
 }

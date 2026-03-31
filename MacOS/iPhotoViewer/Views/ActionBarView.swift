@@ -29,44 +29,71 @@ struct ActionBarView: View {
 
             Spacer()
 
-            // Copy progress
-            if viewModel.isCopying {
-                ProgressView(value: viewModel.copyProgress, total: 100)
+            // Progress
+            if viewModel.isCopying || viewModel.deviceService.isImporting {
+                ProgressView(value: viewModel.isDeviceBrowseMode ? viewModel.deviceService.importProgress : viewModel.copyProgress, total: 100)
                     .frame(width: 120)
                     .tint(Color.accent)
             }
 
-            // Action buttons (icon only with tooltips)
-            Button {
-                Task { await viewModel.copySelected() }
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(ToolbarIconButtonStyle())
-            .disabled(viewModel.isCopying)
-            .help("Copy selected to another folder")
+            if viewModel.isDeviceBrowseMode {
+                // Device browse mode actions
+                Button {
+                    Task { await viewModel.importSelectedFromDevice() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 14))
+                        Text("Import Selected")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(viewModel.deviceService.isImporting)
+                .help("Import selected photos to a local folder")
 
-            Button {
-                Task { await viewModel.moveSelected() }
-            } label: {
-                Image(systemName: "folder")
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(ToolbarIconButtonStyle())
-            .disabled(viewModel.isCopying)
-            .help("Move selected to another folder")
+                Button {
+                    Task { await viewModel.deleteSelectedFromDevice() }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(DangerButtonStyle())
+                .disabled(viewModel.deviceService.isImporting)
+                .help("Delete selected from device")
+            } else {
+                // Local file actions
+                Button {
+                    Task { await viewModel.copySelected() }
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(ToolbarIconButtonStyle())
+                .disabled(viewModel.isCopying)
+                .help("Copy selected to another folder")
 
-            Button {
-                Task { await viewModel.deleteSelected() }
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 14))
+                Button {
+                    Task { await viewModel.moveSelected() }
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(ToolbarIconButtonStyle())
+                .disabled(viewModel.isCopying)
+                .help("Move selected to another folder")
+
+                Button {
+                    Task { await viewModel.deleteSelected() }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(DangerButtonStyle())
+                .disabled(viewModel.isCopying)
+                .keyboardShortcut(.delete, modifiers: [])
+                .help("Delete selected (Del)")
             }
-            .buttonStyle(DangerButtonStyle())
-            .disabled(viewModel.isCopying)
-            .keyboardShortcut(.delete, modifiers: [])
-            .help("Delete selected (Del)")
 
             Divider()
                 .frame(height: 20)

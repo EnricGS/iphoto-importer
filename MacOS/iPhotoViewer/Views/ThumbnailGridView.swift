@@ -15,6 +15,11 @@ struct ThumbnailGridView: View {
             // Split/Import buttons bar (always visible, above grid only)
             splitImportBar
 
+            // Device browse banner
+            if viewModel.isDeviceBrowseMode {
+                deviceBrowseBanner
+            }
+
             // Grid controls (filter toggles, counter, slider)
             if !viewModel.photos.isEmpty {
                 gridControls
@@ -61,6 +66,36 @@ struct ThumbnailGridView: View {
         .background(Color.bgSurface)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.borderSubtle).frame(height: 1)
+        }
+    }
+
+    // MARK: - Device Browse Banner
+
+    private var deviceBrowseBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "iphone")
+                .foregroundStyle(Color.accent)
+            Text("Browsing: \(viewModel.deviceService.selectedDevice?.name ?? "Device")")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.accent)
+            Spacer()
+            Button {
+                viewModel.exitDeviceBrowseMode()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10))
+                    Text("Exit")
+                        .font(.system(size: 11, weight: .medium))
+                }
+            }
+            .buttonStyle(ToolbarButtonStyle())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.accentSubtle)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.accent.opacity(0.3)).frame(height: 1)
         }
     }
 
@@ -234,10 +269,11 @@ struct ThumbnailGridView: View {
                             ThumbnailCell(
                                 photo: photo,
                                 size: viewModel.thumbnailSize,
-                                onTap: { modifiers in
-                                    let isCommand = modifiers.contains(.command)
-                                    let isShift = modifiers.contains(.shift)
-                                    viewModel.handleGridClick(item: photo, isCommandPressed: isCommand, isShiftPressed: isShift)
+                                onImageTap: {
+                                    viewModel.handleGridClick(item: photo)
+                                },
+                                onCheckboxTap: { isShift in
+                                    viewModel.handleCheckboxClick(item: photo, isShiftPressed: isShift)
                                 }
                             )
                             .id(photo.id)
@@ -250,8 +286,7 @@ struct ThumbnailGridView: View {
                                 }
                             )
                             .onDrag {
-                                // If this item is selected, drag all selected items
-                                // Otherwise drag just this item
+                                guard photo.isLocal else { return NSItemProvider() }
                                 let urls: [URL]
                                 if photo.isSelected {
                                     urls = viewModel.selectedFileURLs()
@@ -412,20 +447,20 @@ class RubberBandNSView: NSView {
 struct ThumbnailCell: View {
     let photo: PhotoItem
     let size: CGFloat
-    let onTap: (EventModifiers) -> Void
+    let onImageTap: () -> Void
+    let onCheckboxTap: (Bool) -> Void  // Bool = isShiftPressed
 
     @State private var isHovering = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Thumbnail image
+            // Thumbnail image (clickable — opens viewer)
             Group {
                 if let thumbnail = photo.thumbnail {
                     Image(nsImage: thumbnail)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
-                    // Placeholder while loading
                     Rectangle()
                         .fill(Color.bgElevated)
                         .overlay {
@@ -445,6 +480,9 @@ struct ThumbnailCell: View {
             }
             .frame(width: size, height: size)
             .clipped()
+            .onTapGesture {
+                onImageTap()
+            }
 
             // Video indicator (center)
             if photo.isVideo, photo.thumbnail != nil {
@@ -453,6 +491,7 @@ struct ThumbnailCell: View {
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.5), radius: 2)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
             }
 
             // Gradient overlay at bottom
@@ -462,6 +501,7 @@ struct ThumbnailCell: View {
                 endPoint: .bottom
             )
             .frame(height: 36)
+            .allowsHitTesting(false)
 
             // Filename at bottom
             Text(photo.fileName)
@@ -472,16 +512,31 @@ struct ThumbnailCell: View {
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
 
-            // Selection checkbox (top-left)
-            if photo.isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Color.accent)
-                    .background(Circle().fill(.white).padding(2))
-                    .padding(6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
+            // Checkbox (top-left, always visible on hover or when selected)
+            Image(systemName: photo.isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 18))
+                .foregroundStyle(photo.isSelected ? Color.accent : .white.opacity(0.7))
+                .background(
+                    Circle()
+                        .fill(photo.isSelected ? .white : .black.opacity(0.4))
+                        .padding(3)
+                )
+                .shadow(color: .black.opacity(0.5), radius: 2)
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .opacity(photo.isSelected || isHovering ? 1 : 0)
+                .onTapGesture {
+                    onCheckboxTap(false)
+                }
+                .simultaneousGesture(
+                    TapGesture()
+                        .modifiers(.shift)
+                        .onEnded { _ in
+                            onCheckboxTap(true)
+                        }
+                )
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -493,23 +548,6 @@ struct ThumbnailCell: View {
         .onHover { hovering in
             isHovering = hovering
         }
-        .onTapGesture {
-            onTap([])
-        }
-        .simultaneousGesture(
-            TapGesture()
-                .modifiers(.command)
-                .onEnded { _ in
-                    onTap(.command)
-                }
-        )
-        .simultaneousGesture(
-            TapGesture()
-                .modifiers(.shift)
-                .onEnded { _ in
-                    onTap(.shift)
-                }
-        )
     }
 
     private var borderColor: Color {

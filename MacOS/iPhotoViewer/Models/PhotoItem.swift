@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import AVFoundation
+import ImageCaptureCore
 
 /// Represents a photo or video item, from a local folder or an MTP device.
 @Observable
@@ -22,6 +23,9 @@ final class PhotoItem: Identifiable, Hashable {
 
     /// Video rotation in degrees (0, 90, 180, 270) from track header metadata.
     var videoRotation: Int = 0
+
+    /// Reference to the device camera file (only for device items, nil for local).
+    var cameraFile: ICCameraFile?
 
     // MARK: - UI State
 
@@ -67,6 +71,19 @@ final class PhotoItem: Identifiable, Hashable {
         self.dateTaken = dateTaken
         self.sizeBytes = sizeBytes
         self.isLocal = isLocal
+    }
+
+    /// Convenience init for device items.
+    init(cameraFile: ICCameraFile, deviceId: String) {
+        let name = cameraFile.name ?? "unknown"
+        let path = "device://\(deviceId)/\(name)"
+        self.id = path
+        self.fullPath = path
+        self.fileName = name
+        self.dateTaken = cameraFile.creationDate
+        self.sizeBytes = cameraFile.fileSize
+        self.isLocal = false
+        self.cameraFile = cameraFile
     }
 
     // MARK: - Hashable

@@ -120,6 +120,13 @@ final class MainViewModel {
 
     var isImportPanelOpen: Bool = false
 
+    // MARK: - Device Browse Mode
+
+    var isDeviceBrowseMode: Bool = false
+    private var savedLocalPhotos: [PhotoItem] = []
+    private var savedOpenFolders: [String] = []
+    private var savedCurrentFolder: String?
+
     // MARK: - Destination Folder (persistent via UserDefaults)
 
     var destinationFolder: String? {
@@ -403,6 +410,15 @@ final class MainViewModel {
         viewerCurrentItem = item
         item.isHighlighted = true
 
+        // Device items: show thumbnail only, no full-res available
+        if !item.isLocal {
+            isViewingVideo = false
+            viewerVideoURL = nil
+            viewerImage = item.thumbnail
+            updateViewerInfo(for: item)
+            return
+        }
+
         if item.isVideo {
             isViewingVideo = true
             // Read rotation if not yet set
@@ -591,16 +607,16 @@ final class MainViewModel {
         selectedPhotos.compactMap { URL(fileURLWithPath: $0.fullPath) }
     }
 
-    /// Handles grid click with modifier keys (Cmd+click, Shift+click).
-    func handleGridClick(item: PhotoItem, isCommandPressed: Bool, isShiftPressed: Bool) {
-        if isCommandPressed {
-            // Cmd+click: toggle individual selection
-            toggleSelection(for: item)
-            lastClickedIndex = photos.firstIndex(of: item)
-        } else if isShiftPressed, let lastIndex = lastClickedIndex {
-            // Shift+click: range selection
-            guard let clickedIndex = photos.firstIndex(of: item) else { return }
+    /// Handles click on the image area (opens viewer).
+    func handleGridClick(item: PhotoItem) {
+        lastClickedIndex = photos.firstIndex(of: item)
+        openViewer(for: item)
+    }
 
+    /// Handles click on the checkbox (toggles selection, supports Shift for range).
+    func handleCheckboxClick(item: PhotoItem, isShiftPressed: Bool) {
+        if isShiftPressed, let lastIndex = lastClickedIndex {
+            guard let clickedIndex = photos.firstIndex(of: item) else { return }
             let start = min(lastIndex, clickedIndex)
             let end = max(lastIndex, clickedIndex)
             for i in start...end {
@@ -608,10 +624,9 @@ final class MainViewModel {
                 selectedPhotos.insert(photos[i])
             }
         } else {
-            // Simple click: open in viewer
-            lastClickedIndex = photos.firstIndex(of: item)
-            openViewer(for: item)
+            toggleSelection(for: item)
         }
+        lastClickedIndex = photos.firstIndex(of: item)
     }
 
     // MARK: - View Mode
@@ -819,31 +834,120 @@ final class MainViewModel {
         await deviceService.detectDevices()
     }
 
-    func importFromDevice() async {
-        let panel = NSOpenPanel()
-        panel.title = "Select destination for import"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+    // MARK: - Device Browse
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
+    func browseDevice() async {
         do {
-            let imported = try await deviceService.importPhotos(to: url.path) { current, total, fileName in
-                // Progress reporting
+            let items = try await deviceService.browseDevice()
+            guard !items.isEmpty else { return }
+
+            // Save current local state
+            savedLocalPhotos = allPhotos
+            savedOpenFolders = openFolders
+            savedCurrentFolder = currentFolderPath
+
+            // Enter browse mode
+            isDeviceBrowseMode = true
+            closeViewer()
+            isImportPanelOpen = false
+
+            // Set device photos in the grid
+            allPhotos = items
+            photoCount = items.filter { !$0.isVideo }.count
+            videoCount = items.filter { $0.isVideo }.count
+            applyFilter()
+
+            // Register disconnect callback
+            deviceService.onDeviceDisconnected = { [weak self] in
+                self?.exitDeviceBrowseMode()
             }
 
-            let alert = NSAlert()
-            alert.messageText = "Import Complete"
-            alert.informativeText = "\(imported) photo(s) imported to:\n\(url.path)\n\nOpen folder in viewer?"
-            alert.addButton(withTitle: "Open")
-            alert.addButton(withTitle: "Close")
-
-            if alert.runModal() == .alertFirstButtonReturn {
-                isImportPanelOpen = false
-                await loadFolder(at: url.path)
-            }
+            // Load thumbnails from device in background
+            loadDeviceThumbnails()
         } catch {
-            deviceService.statusMessage = "Import error: \(error.localizedDescription)"
+            deviceService.statusMessage = "Browse error: \(error.localizedDescription)"
         }
+    }
+
+    private func loadDeviceThumbnails() {
+        thumbnailTask?.cancel()
+        let photosCopy = photos
+        thumbnailTask = Task {
+            for photo in photosCopy {
+                guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
+                if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
+                    photo.thumbnail = thumb
+                }
+            }
+        }
+    }
+
+    func importSelectedFromDevice() async {
+        let selected = Array(selectedPhotos)
+        let files = selected.compactMap { $0.cameraFile }
+        guard !files.isEmpty else { return }
+
+        guard let dest = resolveDestinationFolder(title: "Select destination for import") else { return }
+
+        let imported = await deviceService.importSelectedFiles(files, to: dest) { [weak self] current, total, fileName in
+            Task { @MainActor [weak self] in
+                self?.statusMessage = "Importing \(current)/\(total): \(fileName)"
+            }
+        }
+
+        // Stay in device browse mode — just deselect imported items
+        deselectAll()
+        statusMessage = "\(imported) file(s) imported to \(dest). \(allPhotos.count) files on device."
+    }
+
+    func deleteSelectedFromDevice() async {
+        let selected = Array(selectedPhotos)
+        let files = selected.compactMap { $0.cameraFile }
+        guard !files.isEmpty else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete from Device"
+        alert.informativeText = "Permanently delete \(files.count) file(s) from \(deviceService.selectedDevice?.name ?? "device")?\n\nThis cannot be undone."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        await deviceService.deleteFiles(files)
+
+        // Remove deleted items from the grid
+        for item in selected {
+            allPhotos.removeAll { $0 == item }
+            photos.removeAll { $0 == item }
+            selectedPhotos.remove(item)
+        }
+        photoCount = allPhotos.filter { !$0.isVideo }.count
+        videoCount = allPhotos.filter { $0.isVideo }.count
+        statusMessage = "\(files.count) file(s) deleted. \(allPhotos.count) remaining on device."
+    }
+
+    func exitDeviceBrowseMode() {
+        guard isDeviceBrowseMode else { return }
+
+        thumbnailTask?.cancel()
+        closeViewer()
+        deviceService.closeSession()
+        deviceService.onDeviceDisconnected = nil
+
+        // Restore local state
+        allPhotos = savedLocalPhotos
+        openFolders = savedOpenFolders
+        currentFolderPath = savedCurrentFolder
+        savedLocalPhotos = []
+        savedOpenFolders = []
+        savedCurrentFolder = nil
+
+        isDeviceBrowseMode = false
+
+        photoCount = allPhotos.filter { !$0.isVideo }.count
+        videoCount = allPhotos.filter { $0.isVideo }.count
+        applyFilter()
+        updateStatusMessage()
     }
 }

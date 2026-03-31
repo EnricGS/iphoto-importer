@@ -83,6 +83,12 @@ struct ContentView: View {
             return .handled
         }
 
+        // Escape: exit device browse mode first
+        if press.key == .escape && viewModel.isDeviceBrowseMode {
+            viewModel.exitDeviceBrowseMode()
+            return .handled
+        }
+
         // Viewer shortcuts (when viewer is active)
         let viewerActive = viewModel.isViewerOpen || viewModel.isSplitViewerVisible
         if viewerActive {
@@ -149,7 +155,11 @@ struct ContentView: View {
 
         if press.key == .delete || press.key == .deleteForward {
             if viewModel.selectedPhotosCount > 0 {
-                Task { await viewModel.deleteSelected() }
+                if viewModel.isDeviceBrowseMode {
+                    Task { await viewModel.deleteSelectedFromDevice() }
+                } else {
+                    Task { await viewModel.deleteSelected() }
+                }
                 return .handled
             }
         }

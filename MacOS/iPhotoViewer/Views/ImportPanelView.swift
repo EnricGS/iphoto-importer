@@ -98,17 +98,28 @@ struct ImportPanelView: View {
                             }
                         }
 
-                        // Import button
+                        // Browse button
                         if viewModel.deviceService.selectedDevice != nil {
                             Button {
-                                Task { await viewModel.importFromDevice() }
+                                Task { await viewModel.browseDevice() }
                             } label: {
                                 HStack {
-                                    Image(systemName: "iphone.and.arrow.forward")
-                                    Text("Import Photos")
+                                    Image(systemName: "eye")
+                                    Text("Browse Photos")
                                 }
                             }
                             .buttonStyle(PrimaryButtonStyle())
+                            .disabled(viewModel.deviceService.isBrowsing)
+                        }
+
+                        if viewModel.deviceService.isBrowsing {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text("Loading files...")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.textSecondary)
+                            }
                         }
 
                         Spacer()
