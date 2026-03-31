@@ -6,3 +6,4 @@ obj/
 publish/
 installer_output/
 *.zip
+MacOS/.build/

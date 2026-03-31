@@ -16,6 +16,10 @@ final class MainViewModel {
     private let imageCache = ImageCacheService(maxSize: 20)
     let deviceService = DeviceImportService()
 
+    init() {
+        loadPersistedSettings()
+    }
+
     // MARK: - Cancellation
 
     private var thumbnailTask: Task<Void, Never>?
@@ -116,10 +120,16 @@ final class MainViewModel {
 
     var isImportPanelOpen: Bool = false
 
-    // MARK: - Destination Folder
+    // MARK: - Destination Folder (persistent via UserDefaults)
 
-    var destinationFolder: String?
+    var destinationFolder: String? {
+        didSet { UserDefaults.standard.set(destinationFolder, forKey: "destinationFolder") }
+    }
     var hasDestinationFolder: Bool { destinationFolder != nil && !destinationFolder!.isEmpty }
+
+    private func loadPersistedSettings() {
+        destinationFolder = UserDefaults.standard.string(forKey: "destinationFolder")
+    }
 
     // MARK: - Scroll Request (for split mode sync)
 
@@ -515,6 +525,21 @@ final class MainViewModel {
         viewerZoom = max(viewerZoom / 1.25, 0.1)
     }
 
+    /// Smooth zoom towards a cursor position within a container.
+    /// `cursorX`/`cursorY` are relative to the center of the container.
+    func viewerSmoothZoom(delta: CGFloat, cursorX: CGFloat, cursorY: CGFloat) {
+        let sensitivity: CGFloat = 0.02
+        let factor = 1.0 + (-delta * sensitivity)
+        let newZoom = max(0.1, min(viewerZoom * factor, 10.0))
+
+        // Adjust offset to zoom towards cursor position
+        let scale = newZoom / viewerZoom
+        viewerOffsetX = cursorX - scale * (cursorX - viewerOffsetX)
+        viewerOffsetY = cursorY - scale * (cursorY - viewerOffsetY)
+
+        viewerZoom = newZoom
+    }
+
     func viewerZoomReset() {
         viewerZoom = 1.0
         viewerOffsetX = 0
@@ -550,6 +575,20 @@ final class MainViewModel {
             photo.isSelected = false
         }
         selectedPhotos.removeAll()
+    }
+
+    /// Selects a specific set of photos (used by rubber band selection).
+    func selectItems(_ items: Set<PhotoItem>) {
+        deselectAll()
+        for item in items {
+            item.isSelected = true
+            selectedPhotos.insert(item)
+        }
+    }
+
+    /// Returns file URLs for all selected photos (for drag & drop).
+    func selectedFileURLs() -> [URL] {
+        selectedPhotos.compactMap { URL(fileURLWithPath: $0.fullPath) }
     }
 
     /// Handles grid click with modifier keys (Cmd+click, Shift+click).

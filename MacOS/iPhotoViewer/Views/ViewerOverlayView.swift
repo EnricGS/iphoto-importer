@@ -204,13 +204,13 @@ struct ViewerOverlayView: View {
                             isDragging = false
                         }
                 )
-                .onScrollGesture { delta in
-                    if delta > 0 {
-                        viewModel.viewerZoomIn()
-                    } else {
-                        viewModel.viewerZoomOut()
+                .background(
+                    SmoothScrollZoomView(containerSize: containerSize) { delta, cursorX, cursorY in
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            viewModel.viewerSmoothZoom(delta: delta, cursorX: cursorX, cursorY: cursorY)
+                        }
                     }
-                }
+                )
         }
     }
 }
@@ -246,5 +246,38 @@ class ScrollCaptureNSView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         action?(event.scrollingDeltaY)
+    }
+}
+
+// MARK: - Smooth Scroll Zoom View (passes cursor position relative to container center)
+
+struct SmoothScrollZoomView: NSViewRepresentable {
+    let containerSize: CGSize
+    let action: (CGFloat, CGFloat, CGFloat) -> Void
+
+    func makeNSView(context: Context) -> SmoothScrollCaptureNSView {
+        let view = SmoothScrollCaptureNSView()
+        view.containerSize = containerSize
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ nsView: SmoothScrollCaptureNSView, context: Context) {
+        nsView.containerSize = containerSize
+        nsView.action = action
+    }
+}
+
+class SmoothScrollCaptureNSView: NSView {
+    var containerSize: CGSize = .zero
+    var action: ((CGFloat, CGFloat, CGFloat) -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        // Convert to coordinates relative to container center
+        let cursorX = loc.x - containerSize.width / 2
+        // Flip Y (NSView origin is bottom-left, SwiftUI is top-left)
+        let cursorY = (containerSize.height / 2) - loc.y
+        action?(event.scrollingDeltaY, cursorX, cursorY)
     }
 }

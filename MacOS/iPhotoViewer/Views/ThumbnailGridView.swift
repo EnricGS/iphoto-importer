@@ -220,24 +220,99 @@ struct ThumbnailGridView: View {
 
     // MARK: - Grid Content
 
+    // Rubber band selection state
+    @State private var rubberBandStart: CGPoint?
+    @State private var rubberBandCurrent: CGPoint?
+    @State private var thumbnailFrames: [String: CGRect] = [:]
+
     private var gridContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(Array(viewModel.photos.enumerated()), id: \.element.id) { index, photo in
-                        ThumbnailCell(
-                            photo: photo,
-                            size: viewModel.thumbnailSize,
-                            onTap: { modifiers in
-                                let isCommand = modifiers.contains(.command)
-                                let isShift = modifiers.contains(.shift)
-                                viewModel.handleGridClick(item: photo, isCommandPressed: isCommand, isShiftPressed: isShift)
+                ZStack(alignment: .topLeading) {
+                    LazyVGrid(columns: columns, spacing: 4) {
+                        ForEach(Array(viewModel.photos.enumerated()), id: \.element.id) { index, photo in
+                            ThumbnailCell(
+                                photo: photo,
+                                size: viewModel.thumbnailSize,
+                                onTap: { modifiers in
+                                    let isCommand = modifiers.contains(.command)
+                                    let isShift = modifiers.contains(.shift)
+                                    viewModel.handleGridClick(item: photo, isCommandPressed: isCommand, isShiftPressed: isShift)
+                                }
+                            )
+                            .id(photo.id)
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: ThumbnailFramePreferenceKey.self,
+                                        value: [photo.id: geo.frame(in: .named("gridCoordSpace"))]
+                                    )
+                                }
+                            )
+                            .onDrag {
+                                // If this item is selected, drag all selected items
+                                // Otherwise drag just this item
+                                let urls: [URL]
+                                if photo.isSelected {
+                                    urls = viewModel.selectedFileURLs()
+                                } else {
+                                    urls = [URL(fileURLWithPath: photo.fullPath)]
+                                }
+                                let provider = NSItemProvider()
+                                for url in urls {
+                                    provider.registerFileRepresentation(
+                                        forTypeIdentifier: "public.file-url",
+                                        visibility: .all
+                                    ) { completion in
+                                        completion(url, true, nil)
+                                        return nil
+                                    }
+                                }
+                                return provider
                             }
-                        )
-                        .id(photo.id)
+                        }
+                    }
+                    .padding(8)
+
+                    // Rubber band selection rectangle
+                    if let start = rubberBandStart, let current = rubberBandCurrent {
+                        let rect = rubberBandRect(from: start, to: current)
+                        Rectangle()
+                            .fill(Color.accent.opacity(0.15))
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color.accent.opacity(0.6), lineWidth: 1)
+                            )
+                            .frame(width: rect.width, height: rect.height)
+                            .position(x: rect.midX, y: rect.midY)
+                            .allowsHitTesting(false)
                     }
                 }
-                .padding(8)
+                .coordinateSpace(name: "gridCoordSpace")
+                .onPreferenceChange(ThumbnailFramePreferenceKey.self) { frames in
+                    thumbnailFrames.merge(frames) { _, new in new }
+                }
+                .background(
+                    RubberBandGestureView(
+                        onDragStart: { point in
+                            // Only start if not clicking on a thumbnail
+                            let hitsThumbnail = thumbnailFrames.values.contains { $0.contains(point) }
+                            if !hitsThumbnail {
+                                rubberBandStart = point
+                                rubberBandCurrent = point
+                            }
+                        },
+                        onDragChanged: { point in
+                            guard rubberBandStart != nil else { return }
+                            rubberBandCurrent = point
+                            updateRubberBandSelection()
+                        },
+                        onDragEnded: {
+                            rubberBandStart = nil
+                            rubberBandCurrent = nil
+                        }
+                    )
+                )
             }
             .onChange(of: viewModel.scrollToIndex) { _, newValue in
                 if let index = newValue, index < viewModel.photos.count {
@@ -249,6 +324,86 @@ struct ThumbnailGridView: View {
                 }
             }
         }
+    }
+
+    private func rubberBandRect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        )
+    }
+
+    private func updateRubberBandSelection() {
+        guard let start = rubberBandStart, let current = rubberBandCurrent else { return }
+        let selRect = rubberBandRect(from: start, to: current)
+        var selected = Set<PhotoItem>()
+        for photo in viewModel.photos {
+            if let frame = thumbnailFrames[photo.id], selRect.intersects(frame) {
+                selected.insert(photo)
+            }
+        }
+        viewModel.selectItems(selected)
+    }
+}
+
+// MARK: - Preference Key for Thumbnail Frames
+
+struct ThumbnailFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+// MARK: - Rubber Band Gesture View (NSView-based for raw mouse events)
+
+struct RubberBandGestureView: NSViewRepresentable {
+    let onDragStart: (CGPoint) -> Void
+    let onDragChanged: (CGPoint) -> Void
+    let onDragEnded: () -> Void
+
+    func makeNSView(context: Context) -> RubberBandNSView {
+        let view = RubberBandNSView()
+        view.onDragStart = onDragStart
+        view.onDragChanged = onDragChanged
+        view.onDragEnded = onDragEnded
+        return view
+    }
+
+    func updateNSView(_ nsView: RubberBandNSView, context: Context) {
+        nsView.onDragStart = onDragStart
+        nsView.onDragChanged = onDragChanged
+        nsView.onDragEnded = onDragEnded
+    }
+}
+
+class RubberBandNSView: NSView {
+    var onDragStart: ((CGPoint) -> Void)?
+    var onDragChanged: ((CGPoint) -> Void)?
+    var onDragEnded: (() -> Void)?
+
+    private var isDragging = false
+
+    override func mouseDown(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        // Flip Y for SwiftUI coordinate space (origin top-left)
+        let flipped = CGPoint(x: loc.x, y: bounds.height - loc.y)
+        isDragging = true
+        onDragStart?(flipped)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragging else { return }
+        let loc = convert(event.locationInWindow, from: nil)
+        let flipped = CGPoint(x: loc.x, y: bounds.height - loc.y)
+        onDragChanged?(flipped)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isDragging = false
+        onDragEnded?()
     }
 }
 

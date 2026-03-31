@@ -189,13 +189,13 @@ struct ViewerPanelView: View {
                             isDragging = false
                         }
                 )
-                .background(ScrollGestureView { delta in
-                    if delta > 0 {
-                        viewModel.viewerZoomIn()
-                    } else {
-                        viewModel.viewerZoomOut()
+                .background(
+                    SmoothScrollZoomView(containerSize: containerSize) { delta, cursorX, cursorY in
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            viewModel.viewerSmoothZoom(delta: delta, cursorX: cursorX, cursorY: cursorY)
+                        }
                     }
-                })
+                )
         }
     }
 }

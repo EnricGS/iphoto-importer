@@ -1,25 +1,6 @@
 import SwiftUI
 
 /// iPhoto Viewer - macOS native image viewer and manager.
-///
-/// Features:
-/// - Browse images and videos from local folders
-/// - Thumbnail grid with adjustable sizes
-/// - Full-screen and split-panel viewer with zoom/pan
-/// - Copy, move, and delete operations
-/// - Video playback with AVPlayer
-/// - Device import (ImageCaptureCore placeholder)
-/// - EXIF orientation correction
-/// - Keyboard shortcuts
-///
-/// Architecture:
-/// - SwiftUI + MVVM
-/// - ImageIO for GPU-accelerated image decoding
-/// - AVFoundation for video thumbnails and playback
-/// - Persistent thumbnail cache on disk (JPEG 85%, 512px)
-/// - LRU in-memory cache for full-resolution images
-/// - Progressive rendering (thumbnail -> full-res)
-/// - Neighbor prefetching (N +/- 2)
 @main
 struct iPhotoViewerApp: App {
     var body: some Scene {
