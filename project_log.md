@@ -72,3 +72,30 @@ Es renombra tot el projecte (Package.swift, bundle identifiers, struct App, cach
 **Placeholders negres en duplicats:** Al filtrar duplicats al browser iPhone, algunes fotos mostren placeholder negre. La càrrega de thumbnails prioritza les fotos visibles (`photos` filtrat primer, `allPhotos` resta després), però amb 34K fotos la càrrega és massa lenta. Cal explorar alternatives: batch download de thumbnails, o carregar el thumbnail on-demand quan la cel·la és visible.
 
 **Enumeració bloqueja UI:** Amb 34K fitxers, l'enumeració de `device.mediaFiles` bloqueja la UI durant uns segons malgrat haver-la mogut a `Task.detached`. Probablement el problema és la creació massiva de `PhotoItem` al tornar al MainActor, o l'`applyFilter()` amb 34K elements. Un `Task.yield()` dins el bucle causa deadlock al MainActor. Cal explorar chunked loading o virtualització.
+
+---
+
+## 2026-04-02 — Investigació publicació App Store
+
+### Requisits per publicar a l'App Store de macOS
+
+L'objectiu és publicar iPhotoManager a l'App Store, a més de la distribució directa (DMG signat) que ja funciona.
+
+**Requisits identificats:**
+
+1. **Apple Developer Program** — Ja actiu (team ID Q8A29JFBWR, 99$/any).
+2. **App Sandbox (OBLIGATORI)** — L'App Store exigeix que l'app funcioni dins el sandbox de macOS. Això és el punt crític perquè:
+   - L'accés a carpetes via `NSOpenPanel` ja funciona (l'usuari autoritza explícitament).
+   - El cache de thumbnails hauria d'anar dins el container de l'app (`~/Library/Containers/`).
+   - **ImageCaptureCore + USB**: L'entitlement `com.apple.security.device.usb` que usem per accedir a l'iPhone pot NO estar permès dins sandbox. Cal investigar si Apple l'aprova per apps de l'App Store o si cal un entitlement especial. Si no funciona, la funcionalitat d'import de dispositiu s'hauria de fer opcional o eliminar de la versió App Store.
+3. **Certificat de distribució** — Cal "Apple Distribution" (no "Developer ID" que és per distribució directa). Es genera a Xcode → Accounts → Manage Certificates.
+4. **Privacy Nutrition Labels** — Declarar a App Store Connect quines dades es recullen. En el nostre cas: accés a fotos locals (via NSOpenPanel), GPS EXIF (per geocoding), i potencialment dades del dispositiu USB.
+5. **Icona 1024x1024** — Ja tenim AppIcon.icns, cal verificar que inclou la mida 1024x1024 per l'App Store.
+6. **Captures de pantalla** — Cal preparar captures de pantalla de l'app per l'App Store listing.
+7. **SDK mínim** — A partir d'abril 2026, Apple requereix compilar amb Xcode 26 / SDK macOS 26. Ara compilem amb Xcode 15.2+ / macOS 14+. Caldrà actualitzar.
+8. **Archive + Upload** — Crear archive via Xcode (`Product → Archive`) i pujar via Xcode Organizer o `xcrun altool`.
+
+**Pas crític a investigar:** Verificar si ImageCaptureCore funciona dins App Sandbox. Si no, opcions:
+- Distribuir dues versions: App Store (sense import iPhone) i directa (amb import iPhone).
+- Demanar un entitlement especial a Apple.
+- Trobar una alternativa a ImageCaptureCore compatible amb sandbox.
