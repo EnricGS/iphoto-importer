@@ -70,6 +70,19 @@ struct ToolbarView: View {
 
             Spacer().frame(width: 8)
 
+            // Scan disk for photos
+            Button {
+                viewModel.showScanResults = true
+            } label: {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(ToolbarIconButtonStyle())
+            .help("Cercar carpetes amb fotos a l'ordinador")
+            .sheet(isPresented: $viewModel.showScanResults) {
+                DiskScanPopover(viewModel: viewModel)
+            }
+
             // Add folder button
             Button {
                 viewModel.openFolder()
@@ -170,6 +183,154 @@ struct ToolbarIconButtonStyle: ButtonStyle {
             .background(Color.bgElevated)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .opacity(configuration.isPressed ? 0.8 : 1.0)
+    }
+}
+
+// MARK: - Disk Scan Popover
+
+struct DiskScanPopover: View {
+    @Bindable var viewModel: MainViewModel
+    @State private var selectedFolders: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            Text("Cercar fotos a l'ordinador")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.textPrimary)
+
+            // Scope toggle
+            HStack(spacing: 0) {
+                Button {
+                    viewModel.diskScanDeep = false
+                } label: {
+                    Text("Ubicacions típiques")
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(!viewModel.diskScanDeep ? Color.accentSubtle : Color.clear)
+                        .foregroundStyle(!viewModel.diskScanDeep ? Color.accent : Color.textDim)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    viewModel.diskScanDeep = true
+                } label: {
+                    Text("Tot el disc")
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(viewModel.diskScanDeep ? Color.accentSubtle : Color.clear)
+                        .foregroundStyle(viewModel.diskScanDeep ? Color.accent : Color.textDim)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(1)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            // Scan button
+            if !viewModel.isScanningDisk && viewModel.diskScanResults.isEmpty {
+                Button {
+                    viewModel.startDiskScan()
+                } label: {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                        Text("Cercar")
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+
+            // Progress
+            if viewModel.isScanningDisk {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                    Text(viewModel.diskScanProgress)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.textSecondary)
+                }
+
+                Button {
+                    viewModel.cancelDiskScan()
+                } label: {
+                    Text("Aturar")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.dangerColor)
+            }
+
+            // Results
+            if !viewModel.diskScanResults.isEmpty {
+                Text(viewModel.diskScanProgress)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.textDim)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(viewModel.diskScanResults, id: \.self) { folder in
+                            HStack(spacing: 6) {
+                                Image(systemName: selectedFolders.contains(folder) ? "checkmark.square.fill" : "square")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(selectedFolders.contains(folder) ? Color.accent : Color.textDim)
+                                Text(folder)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Color.textPrimary)
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                            }
+                            .padding(.vertical, 3)
+                            .padding(.horizontal, 6)
+                            .background(selectedFolders.contains(folder) ? Color.accentSubtle : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if selectedFolders.contains(folder) {
+                                    selectedFolders.remove(folder)
+                                } else {
+                                    selectedFolders.insert(folder)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 300)
+
+                HStack {
+                    Button {
+                        if selectedFolders.isEmpty {
+                            selectedFolders = Set(viewModel.diskScanResults)
+                        } else {
+                            selectedFolders.removeAll()
+                        }
+                    } label: {
+                        Text(selectedFolders.isEmpty ? "Seleccionar totes" : "Cap")
+                            .font(.system(size: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accent)
+
+                    Spacer()
+
+                    if !selectedFolders.isEmpty {
+                        Button {
+                            Task { await viewModel.addScanResults(Array(selectedFolders)) }
+                        } label: {
+                            HStack {
+                                Image(systemName: "folder.badge.plus")
+                                Text("Afegir \(selectedFolders.count) carpetes")
+                            }
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 500, minHeight: 200, maxHeight: 500)
+        .background(Color.bgBase)
     }
 }
 

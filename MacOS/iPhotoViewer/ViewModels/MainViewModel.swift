@@ -136,6 +136,92 @@ final class MainViewModel {
         viewMode == .toggle && isViewerOpen
     }
 
+    // MARK: - Photo Scan (find folders with photos on disk)
+
+    var isScanningDisk: Bool = false
+    var diskScanResults: [String] = []  // Folder paths with photos
+    var diskScanProgress: String = ""
+    var diskScanDeep: Bool = false  // false = typical locations, true = full disk
+    var showScanResults: Bool = false
+    private var diskScanTask: Task<Void, Never>?
+
+    /// Typical photo locations to scan
+    private static let typicalPhotoLocations: [String] = {
+        let home = NSHomeDirectory()
+        var paths = [
+            home + "/Pictures",
+            home + "/Desktop",
+            home + "/Downloads",
+            home + "/Documents",
+            home + "/Photos",
+        ]
+        // Add external volumes
+        if let volumes = try? FileManager.default.contentsOfDirectory(atPath: "/Volumes") {
+            for vol in volumes where vol != "Macintosh HD" {
+                paths.append("/Volumes/\(vol)")
+            }
+        }
+        return paths
+    }()
+
+    func startDiskScan() {
+        diskScanTask?.cancel()
+        diskScanResults = []
+        isScanningDisk = true
+        showScanResults = true
+
+        let searchRoots = diskScanDeep
+            ? [NSHomeDirectory()] + ((try? FileManager.default.contentsOfDirectory(atPath: "/Volumes").filter { $0 != "Macintosh HD" }.map { "/Volumes/\($0)" }) ?? [])
+            : Self.typicalPhotoLocations
+
+        diskScanTask = Task {
+            let fm = FileManager.default
+            var foundFolders = Set<String>()
+
+            for root in searchRoots {
+                guard !Task.isCancelled else { break }
+                guard fm.fileExists(atPath: root) else { continue }
+
+                diskScanProgress = "Cercant a \((root as NSString).lastPathComponent)..."
+
+                guard let enumerator = fm.enumerator(
+                    at: URL(fileURLWithPath: root),
+                    includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                ) else { continue }
+
+                for case let fileURL as URL in enumerator {
+                    guard !Task.isCancelled else { break }
+
+                    let ext = fileURL.pathExtension.lowercased()
+                    if PhotoItem.allExtensions.contains(ext) {
+                        let folder = fileURL.deletingLastPathComponent().path
+                        if !foundFolders.contains(folder) {
+                            foundFolders.insert(folder)
+                            diskScanResults.append(folder)
+                            diskScanProgress = "Trobades \(foundFolders.count) carpetes..."
+                        }
+                    }
+                }
+            }
+
+            diskScanProgress = "\(foundFolders.count) carpetes amb fotos trobades."
+            isScanningDisk = false
+        }
+    }
+
+    func cancelDiskScan() {
+        diskScanTask?.cancel()
+        isScanningDisk = false
+    }
+
+    func addScanResults(_ folders: [String]) async {
+        showScanResults = false
+        for folder in folders {
+            await addFolder(at: folder)
+        }
+    }
+
     // MARK: - Import Panel
 
     var isImportPanelOpen: Bool = false
