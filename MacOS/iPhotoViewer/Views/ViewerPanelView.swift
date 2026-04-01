@@ -59,24 +59,7 @@ struct ViewerPanelView: View {
                 }
             }
 
-            // Bottom info bar
-            HStack {
-                Text(viewModel.viewerInfoText)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.textDim)
-                    .lineLimit(1)
-                Spacer()
-                Text("Navigate  |  +/- zoom  |  Space play  |  Tab mode  |  Esc close")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.textDim)
-                    .opacity(0.6)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(Color.bgSurface)
-            .overlay(alignment: .top) {
-                Rectangle().fill(Color.borderSubtle).frame(height: 1)
-            }
+            // Bottom info bar removed — info shown in toolbar above
         }
         .background(Color.bgBase)
     }

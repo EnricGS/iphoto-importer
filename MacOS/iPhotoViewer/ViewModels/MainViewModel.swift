@@ -212,6 +212,42 @@ final class MainViewModel {
         }
     }
 
+    private static func logLocation(_ msg: String) {
+        let path = NSHomeDirectory() + "/iphoto_import.log"
+        let line = "\(Date()): [Location] \(msg)\n"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Formats a placemark into "Localitat, País" with Catalan rules.
+    /// Catalunya → shows "Catalunya" instead of "Espanya".
+    static func formatLocation(from placemark: CLPlacemark) -> String? {
+        let locality = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea
+        guard let locality else { return placemark.country }
+
+        let region = placemark.administrativeArea ?? ""
+        let isoCountry = placemark.isoCountryCode ?? ""
+
+        // Catalunya: províncies catalanes
+        let catalanProvinces = ["Barcelona", "Girona", "Lleida", "Tarragona"]
+        if isoCountry == "ES" {
+            if catalanProvinces.contains(where: { region.localizedCaseInsensitiveContains($0) }) {
+                return "\(locality), Catalunya"
+            }
+            return "\(locality), Espanya"
+        }
+
+        if let country = placemark.country {
+            return "\(locality), \(country)"
+        }
+        return locality
+    }
+
     private func rebuildGroups() {
         var dict: [String: [PhotoItem]] = [:]
         var order: [String] = []
@@ -465,30 +501,45 @@ final class MainViewModel {
         locationTask?.cancel()
         let photosCopy = photos.filter { $0.isLocal && $0.location == nil && !$0.isVideo }
         let geocoder = CLGeocoder()
-        print("[Location] Starting location loading for \(photosCopy.count) photos")
+        let catalanLocale = Locale(identifier: "ca_ES")
+        Self.logLocation("Starting location loading for \(photosCopy.count) photos")
 
         locationTask = Task {
-            var foundGPS = 0
+            // Cache: rounded coords → location string (avoid geocoding same place repeatedly)
+            var locationCache: [String: String] = [:]
+
             for photo in photosCopy {
                 guard !Task.isCancelled else { return }
 
                 guard let coords = FileService.extractGPSLocation(at: photo.fullPath) else { continue }
-                foundGPS += 1
-                print("[Location] GPS found for \(photo.fileName): \(coords.latitude), \(coords.longitude)")
+
+                // Round to ~100m precision for cache key
+                let cacheKey = "\(Int(coords.latitude * 1000)),\(Int(coords.longitude * 1000))"
+
+                if let cached = locationCache[cacheKey] {
+                    photo.location = cached
+                    if viewerCurrentItem == photo { updateViewerInfo(for: photo) }
+                    continue
+                }
 
                 let location = CLLocation(latitude: coords.latitude, longitude: coords.longitude)
                 do {
-                    let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                    let placemarks = try await geocoder.reverseGeocodeLocation(location, preferredLocale: catalanLocale)
                     if let placemark = placemarks.first {
-                        photo.location = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea
+                        let loc = Self.formatLocation(from: placemark)
+                        Self.logLocation("Geocoded \(photo.fileName): \(loc ?? "nil") [admin=\(placemark.administrativeArea ?? "?")]")
+                        photo.location = loc
+                        if let loc { locationCache[cacheKey] = loc }
+                        if viewerCurrentItem == photo { updateViewerInfo(for: photo) }
                     }
                 } catch {
-                    // Geocoding failed (rate limit, network, etc.) — skip
+                    Self.logLocation("Geocoding FAILED for \(photo.fileName): \(error.localizedDescription)")
                 }
 
-                // Rate limit: small delay between geocoding calls
-                try? await Task.sleep(for: .milliseconds(500))
+                // Rate limit only for actual geocoding calls
+                try? await Task.sleep(for: .milliseconds(300))
             }
+            Self.logLocation("Location loading complete. Cache: \(locationCache.count) unique locations")
         }
     }
 
@@ -620,6 +671,11 @@ final class MainViewModel {
         viewerVideoURL = nil
         viewerVideoRotation = 0
 
+        // Geocode on-demand if no location yet
+        if item.location == nil && item.isLocal {
+            Task { await geocodeViewerItem(item) }
+        }
+
         // 1. Show thumbnail immediately (progressive rendering)
         if let thumb = item.thumbnail {
             viewerImage = thumb
@@ -662,6 +718,32 @@ final class MainViewModel {
         prefetchNeighbors()
     }
 
+    /// Geocodes a single item for immediate display in the viewer.
+    private func geocodeViewerItem(_ item: PhotoItem) async {
+        guard let coords = FileService.extractGPSLocation(at: item.fullPath) else {
+            Self.logLocation("[Viewer] No GPS for \(item.fileName)")
+            return
+        }
+        Self.logLocation("[Viewer] Geocoding \(item.fileName)...")
+        let geocoder = CLGeocoder()
+        let catalanLocale = Locale(identifier: "ca_ES")
+        do {
+            let placemarks = try await geocoder.reverseGeocodeLocation(
+                CLLocation(latitude: coords.latitude, longitude: coords.longitude),
+                preferredLocale: catalanLocale
+            )
+            if let placemark = placemarks.first {
+                let loc = Self.formatLocation(from: placemark)
+                Self.logLocation("[Viewer] Got: \(loc ?? "nil"), isCurrent: \(viewerCurrentItem == item)")
+                item.location = loc
+                // Always update — don't check equality (same object reference)
+                updateViewerInfo(for: item)
+            }
+        } catch {
+            Self.logLocation("[Viewer] FAILED: \(error.localizedDescription)")
+        }
+    }
+
     /// Prefetches neighbor images (N +/- 2) for fast navigation.
     private func prefetchNeighbors() {
         prefetchTask?.cancel()
@@ -698,14 +780,18 @@ final class MainViewModel {
             item.fileName
         ]
 
-        if item.pixelWidth > 0 {
-            parts.append("\(item.pixelWidth) x \(item.pixelHeight)")
-        }
-
         if let date = item.dateTaken {
             let formatter = DateFormatter()
-            formatter.dateFormat = "dd/MM/yyyy HH:mm"
+            formatter.dateFormat = "dd/MM/yyyy"
             parts.append(formatter.string(from: date))
+        }
+
+        if let location = item.location {
+            parts.append(location)
+        }
+
+        if item.pixelWidth > 0 {
+            parts.append("\(item.pixelWidth) x \(item.pixelHeight)")
         }
 
         if item.sizeBytes > 0 {
@@ -1096,6 +1182,7 @@ final class MainViewModel {
         deviceLocationTask?.cancel()
         let photosCopy = photos.filter { !$0.isLocal && $0.location == nil && $0.gpsLatitude != nil }
         let geocoder = CLGeocoder()
+        let catalanLocale = Locale(identifier: "ca_ES")
 
         deviceLocationTask = Task {
             for photo in photosCopy {
@@ -1105,9 +1192,9 @@ final class MainViewModel {
 
                 let location = CLLocation(latitude: lat, longitude: lon)
                 do {
-                    let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                    let placemarks = try await geocoder.reverseGeocodeLocation(location, preferredLocale: catalanLocale)
                     if let placemark = placemarks.first {
-                        photo.location = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea
+                        photo.location = Self.formatLocation(from: placemark)
                     }
                 } catch {
                     // Geocoding failed — skip

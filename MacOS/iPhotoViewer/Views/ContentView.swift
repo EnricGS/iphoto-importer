@@ -60,6 +60,14 @@ struct ContentView: View {
             HSplitView {
                 ThumbnailGridView(viewModel: viewModel)
                     .frame(minWidth: 300)
+                    .overlay(alignment: .trailing) {
+                        if viewModel.isSplitViewerVisible {
+                            Rectangle()
+                                .fill(Color.accent.opacity(0.6))
+                                .frame(width: 3)
+                                .allowsHitTesting(false)
+                        }
+                    }
 
                 if viewModel.isSplitViewerVisible {
                     ViewerPanelView(viewModel: viewModel)
