@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// iPhoto Viewer - macOS native image viewer and manager.
+/// iPhoto Manager - macOS native image viewer and manager.
 @main
 struct iPhotoViewerApp: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("iPhoto Manager") {
             ContentView()
                 .frame(minWidth: 900, minHeight: 600)
         }

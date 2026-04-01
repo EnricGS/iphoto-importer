@@ -121,6 +121,21 @@ struct ViewerPanelView: View {
             .buttonStyle(IconButtonStyle())
             .help("Reset zoom (0)")
 
+            // Select/deselect current photo
+            Button {
+                if let item = viewModel.viewerCurrentItem {
+                    viewModel.toggleSelection(for: item)
+                }
+            } label: {
+                Image(systemName: viewModel.viewerCurrentItem?.isSelected == true
+                    ? "checkmark.circle.fill" : "checkmark.circle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(viewModel.viewerCurrentItem?.isSelected == true
+                        ? Color.accent : Color.textDim)
+            }
+            .buttonStyle(IconButtonStyle())
+            .help(viewModel.viewerCurrentItem?.isSelected == true ? "Desseleccionar" : "Seleccionar")
+
             // Copy current photo
             Button {
                 Task { await viewModel.copyCurrentPhoto() }
@@ -129,7 +144,27 @@ struct ViewerPanelView: View {
                     .font(.system(size: 13))
             }
             .buttonStyle(IconButtonStyle())
-            .help("Copy current photo to destination (C)")
+            .help("Copiar foto al destí (C)")
+
+            // Delete current photo
+            Button {
+                if let item = viewModel.viewerCurrentItem {
+                    if !item.isSelected {
+                        viewModel.toggleSelection(for: item)
+                    }
+                    if viewModel.isDeviceBrowseMode {
+                        Task { await viewModel.deleteSelectedFromDevice() }
+                    } else {
+                        Task { await viewModel.deleteSelected() }
+                    }
+                }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.dangerColor)
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Eliminar")
 
             // Close
             Button { viewModel.closeViewer() } label: {

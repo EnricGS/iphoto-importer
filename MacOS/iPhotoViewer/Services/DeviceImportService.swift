@@ -77,13 +77,40 @@ final class DeviceImportService: NSObject {
         if browser == nil {
             browser = ICDeviceBrowser()
             browser?.delegate = self
+            browser?.start()
+            // First time: wait longer for browser to initialize
+            try? await Task.sleep(for: .seconds(3))
+        } else {
+            // Browser already running — re-enumerate known devices
+            if let knownDevices = browser?.devices {
+                for device in knownDevices {
+                    if let cameraDevice = device as? ICCameraDevice {
+                        let name = device.name ?? "Unknown"
+                        let type: DeviceInfo.DeviceType
+                        if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
+                            type = .iPhone
+                        } else if device.type == .camera {
+                            type = .camera
+                        } else {
+                            type = .unknown
+                        }
+                        let info = DeviceInfo(
+                            id: device.uuidString ?? UUID().uuidString,
+                            name: name,
+                            type: type,
+                            icDevice: cameraDevice
+                        )
+                        cameraDevice.delegate = self
+                        if !devices.contains(where: { $0.id == info.id }) {
+                            devices.append(info)
+                        }
+                    }
+                }
+            }
+            // Short wait in case new devices appear
+            try? await Task.sleep(for: .seconds(1))
         }
-        browser?.start()
 
-        // Wait for devices to appear
-        try? await Task.sleep(for: .seconds(3))
-
-        // Don't stop the browser — keep it alive so devices remain connected
         isScanning = false
 
         if devices.isEmpty {

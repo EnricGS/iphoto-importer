@@ -111,6 +111,9 @@ struct ViewerOverlayView: View {
                         .help("Fit to screen (F)")
                     }
 
+                    // Select/deselect current photo
+                    ViewerSelectButton(viewModel: viewModel)
+
                     // Copy current photo
                     Button {
                         Task { await viewModel.copyCurrentPhoto() }
@@ -120,7 +123,27 @@ struct ViewerOverlayView: View {
                             .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
-                    .help("Copy current photo to destination (C)")
+                    .help("Copiar foto al destí (C)")
+
+                    // Delete current photo
+                    Button {
+                        if let item = viewModel.viewerCurrentItem {
+                            if !item.isSelected {
+                                viewModel.toggleSelection(for: item)
+                            }
+                            if viewModel.isDeviceBrowseMode {
+                                Task { await viewModel.deleteSelectedFromDevice() }
+                            } else {
+                                Task { await viewModel.deleteSelected() }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Color.dangerColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Eliminar")
 
                     // Close button
                     Button {
@@ -131,7 +154,7 @@ struct ViewerOverlayView: View {
                             .foregroundStyle(.white.opacity(0.8))
                     }
                     .buttonStyle(.plain)
-                    .help("Close (Esc)")
+                    .help("Tancar (Esc)")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
@@ -332,6 +355,45 @@ class SmoothScrollCaptureNSView: NSView {
 }
 
 // MARK: - Navigation Tap View (NSView-based to avoid SwiftUI gesture conflicts)
+
+// MARK: - Viewer Select Button (separate view to force re-render on selection change)
+
+struct ViewerSelectButton: View {
+    @Bindable var viewModel: MainViewModel
+    @State private var isSelected = false
+
+    var body: some View {
+        Button {
+            if let item = viewModel.viewerCurrentItem {
+                viewModel.toggleSelection(for: item)
+                isSelected = viewModel.selectedPhotos.contains(item)
+            }
+        } label: {
+            ZStack {
+                if isSelected {
+                    Circle()
+                        .fill(Color.accent)
+                        .frame(width: 22, height: 22)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                } else {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(isSelected ? "Desseleccionar" : "Seleccionar")
+        .onChange(of: viewModel.viewerCurrentItem) { _, newItem in
+            isSelected = newItem.map { viewModel.selectedPhotos.contains($0) } ?? false
+        }
+        .onAppear {
+            isSelected = viewModel.viewerCurrentItem.map { viewModel.selectedPhotos.contains($0) } ?? false
+        }
+    }
+}
 
 struct NavigationTapView: NSViewRepresentable {
     let onTap: () -> Void

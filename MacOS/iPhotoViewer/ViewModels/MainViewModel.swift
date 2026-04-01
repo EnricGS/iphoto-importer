@@ -38,6 +38,9 @@ final class MainViewModel {
 
     // MARK: - Multi-Folder Support
 
+    /// Folders that scan recursively (per-folder setting)
+    var recursiveFolders: Set<String> = []
+
     /// List of open folders
     var openFolders: [String] = []
 
@@ -300,7 +303,7 @@ final class MainViewModel {
         closeViewer()
 
         do {
-            let items = try await fileService.scanFolder(at: path) { [weak self] scanned, found, file in
+            let items = try await fileService.scanFolder(at: path, recursive: recursiveFolders.contains(path)) { [weak self] scanned, found, file in
                 Task { @MainActor [weak self] in
                     self?.statusMessage = "Scanning... \(found) images found — \(file)"
                 }
@@ -346,6 +349,22 @@ final class MainViewModel {
     }
 
     /// Removes a folder and its photos from the view.
+    /// Toggle recursive scan for a folder and rescan it.
+    func toggleRecursive(for folderPath: String) {
+        if recursiveFolders.contains(folderPath) {
+            recursiveFolders.remove(folderPath)
+        } else {
+            recursiveFolders.insert(folderPath)
+        }
+        // Rescan this folder
+        allPhotos.removeAll { $0.fullPath.hasPrefix(folderPath) }
+        openFolders.removeAll { $0 == folderPath }
+        photoCount = allPhotos.filter { !$0.isVideo }.count
+        videoCount = allPhotos.filter { $0.isVideo }.count
+        applyFilter()
+        Task { await addFolder(at: folderPath) }
+    }
+
     func removeFolder(_ folderPath: String) {
         guard openFolders.contains(folderPath) else { return }
 
@@ -1152,6 +1171,10 @@ final class MainViewModel {
         closeViewer()
         deviceService.closeSession()
         deviceService.onDeviceDisconnected = nil
+        deviceService.selectedDevice = nil
+        deviceService.devices = []
+        deviceService.statusMessage = "Connecta un iPhone o càmera per USB."
+        isImportPanelOpen = false
 
         // Restore local state
         allPhotos = savedLocalPhotos

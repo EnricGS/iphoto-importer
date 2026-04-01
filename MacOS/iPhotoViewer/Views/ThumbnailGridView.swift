@@ -12,9 +12,6 @@ struct ThumbnailGridView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Split/Import buttons bar (always visible, above grid only)
-            splitImportBar
-
             // Device browse banner
             if viewModel.isDeviceBrowseMode {
                 deviceBrowseBanner
@@ -35,40 +32,6 @@ struct ThumbnailGridView: View {
             }
         }
         .background(Color.bgBase)
-    }
-
-    // MARK: - Split/Import Bar (above grid only)
-
-    private var splitImportBar: some View {
-        HStack(spacing: 4) {
-            Spacer()
-
-            // View mode toggle
-            Button {
-                viewModel.toggleViewMode()
-            } label: {
-                Image(systemName: viewModel.isSplitMode ? "rectangle.split.2x1" : "rectangle")
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(ToolbarIconButtonStyle())
-            .help("Toggle Split/Toggle mode (Tab)")
-
-            // Import button (phone icon)
-            Button {
-                viewModel.toggleImportPanel()
-            } label: {
-                Image(systemName: "iphone.and.arrow.forward")
-                    .font(.system(size: 14))
-            }
-            .buttonStyle(ToolbarIconButtonStyle())
-            .help("Import from device (iPhone)")
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color.bgSurface)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.borderSubtle).frame(height: 1)
-        }
     }
 
     // MARK: - Device Browse Banner
@@ -105,7 +68,7 @@ struct ThumbnailGridView: View {
 
     private var gridControls: some View {
         HStack(spacing: 12) {
-            // Photo count
+            // Element count
             HStack(spacing: 2) {
                 Text("\(viewModel.photos.count)")
                     .foregroundStyle(Color.textSecondary)
@@ -114,30 +77,7 @@ struct ThumbnailGridView: View {
             }
             .font(.system(size: 12))
 
-            Spacer()
-
-            // Quick selection
-            HStack(spacing: 4) {
-                Button {
-                    viewModel.selectAll()
-                } label: {
-                    Image(systemName: "checkmark.square")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(IconButtonStyle())
-                .help("Select all (Cmd+A)")
-
-                Button {
-                    viewModel.deselectAll()
-                } label: {
-                    Image(systemName: "xmark.circle")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(IconButtonStyle())
-                .help("Deselect all (Cmd+D)")
-            }
-
-            // Filter toggles (pill style, matching Windows)
+            // Filter toggles (pill style)
             HStack(spacing: 0) {
                 // Photos filter toggle
                 Button {
@@ -160,7 +100,7 @@ struct ThumbnailGridView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
-                .help("Show/hide photos")
+                .help("Mostrar/amagar fotos")
 
                 Divider().frame(height: 14)
 
@@ -185,27 +125,76 @@ struct ThumbnailGridView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
-                .help("Show/hide videos")
+                .help("Mostrar/amagar vídeos")
             }
             .padding(2)
             .background(Color.bgElevated)
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
+            // Select all pill (with integrated deselect when items selected)
+            Button {
+                if viewModel.selectedPhotosCount > 0 {
+                    viewModel.deselectAll()
+                } else {
+                    viewModel.selectAll()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: viewModel.selectedPhotosCount > 0 ? "checkmark.circle.fill" : "checkmark.circle")
+                        .font(.system(size: 11))
+                    if viewModel.selectedPhotosCount > 0 {
+                        Text("\(viewModel.selectedPhotosCount)")
+                            .font(.system(size: 11))
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(viewModel.selectedPhotosCount > 0 ? Color.accentSubtle : Color.clear)
+                .foregroundStyle(viewModel.selectedPhotosCount > 0 ? Color.accent : Color.textDim)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(viewModel.selectedPhotosCount > 0 ? Color.accentDim : Color.clear, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.selectedPhotosCount > 0
+                ? "Desseleccionar tot (Cmd+D)"
+                : "Seleccionar tot (Cmd+A)")
+
             // Sort order toggle
             Button {
                 viewModel.toggleSortOrder()
             } label: {
-                Image(systemName: viewModel.sortAscending ? "arrow.up" : "arrow.down")
+                HStack(spacing: 1) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(viewModel.sortAscending ? Color.accent : Color.textDim)
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(!viewModel.sortAscending ? Color.accent : Color.textDim)
+                }
+            }
+            .buttonStyle(IconButtonStyle())
+            .help(viewModel.sortAscending ? "Més antics primer (clic per canviar)" : "Més recents primer (clic per canviar)")
+
+            // Split view toggle (moved from old bar 2)
+            Button {
+                viewModel.toggleViewMode()
+            } label: {
+                Image(systemName: viewModel.isSplitMode ? "rectangle.split.2x1" : "rectangle")
                     .font(.system(size: 12))
             }
             .buttonStyle(IconButtonStyle())
-            .help(viewModel.sortAscending ? "Oldest first (click to reverse)" : "Newest first (click to reverse)")
+            .help("Mode split/toggle (Tab)")
 
-            // Timeline/Grid toggle
+            // Grid/Timeline toggle — show icon of the mode NOT active
             Button {
                 viewModel.toggleTimelineMode()
             } label: {
-                Image(systemName: viewModel.isTimelineMode ? "calendar" : "square.grid.2x2")
+                Image(systemName: viewModel.isTimelineMode ? "square.grid.2x2" : "calendar")
                     .font(.system(size: 12))
             }
             .buttonStyle(IconButtonStyle())
@@ -242,11 +231,9 @@ struct ThumbnailGridView: View {
                 Slider(value: $viewModel.thumbnailSize, in: 80...400, step: 10)
                     .frame(width: 100)
                     .tint(Color.accent)
-
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.textPrimary)
             }
+
+            Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

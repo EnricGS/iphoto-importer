@@ -10,10 +10,11 @@ actor FileService {
 
     // MARK: - Folder Scanning
 
-    /// Scans a folder recursively for image and video files.
+    /// Scans a folder for image and video files.
     /// Reports progress via the callback.
     func scanFolder(
         at path: String,
+        recursive: Bool = false,
         progress: @escaping @Sendable (Int, Int, String) -> Void
     ) async throws -> [PhotoItem] {
         let url = URL(fileURLWithPath: path)
@@ -26,10 +27,15 @@ actor FileService {
         var results: [PhotoItem] = []
         var scanned = 0
 
+        var options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
+        if !recursive {
+            options.insert(.skipsSubdirectoryDescendants)
+        }
+
         let enumerator = fm.enumerator(
             at: url,
             includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            options: options
         )
 
         guard let enumerator else {
