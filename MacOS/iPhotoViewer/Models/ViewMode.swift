@@ -14,3 +14,18 @@ enum ViewMode: String, CaseIterable {
         }
     }
 }
+
+/// Timeline grouping level for the thumbnail grid.
+enum TimelineGrouping: String, CaseIterable {
+    case day
+    case month
+    case year
+
+    var label: String {
+        switch self {
+        case .day: return "Dia"
+        case .month: return "Mes"
+        case .year: return "Any"
+        }
+    }
+}

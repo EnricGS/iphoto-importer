@@ -28,6 +28,8 @@ struct ThumbnailGridView: View {
             // Thumbnail grid
             if viewModel.photos.isEmpty && !viewModel.isLoading {
                 emptyState
+            } else if viewModel.isTimelineMode {
+                timelineContent
             } else {
                 gridContent
             }
@@ -199,6 +201,38 @@ struct ThumbnailGridView: View {
             .buttonStyle(IconButtonStyle())
             .help(viewModel.sortAscending ? "Oldest first (click to reverse)" : "Newest first (click to reverse)")
 
+            // Timeline/Grid toggle
+            Button {
+                viewModel.toggleTimelineMode()
+            } label: {
+                Image(systemName: viewModel.isTimelineMode ? "calendar" : "square.grid.2x2")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(IconButtonStyle())
+            .help(viewModel.isTimelineMode ? "Vista graella" : "Vista timeline")
+
+            // Timeline grouping selector (only in timeline mode)
+            if viewModel.isTimelineMode {
+                HStack(spacing: 0) {
+                    ForEach(TimelineGrouping.allCases, id: \.self) { grouping in
+                        Button {
+                            viewModel.setTimelineGrouping(grouping)
+                        } label: {
+                            Text(grouping.label)
+                                .font(.system(size: 10, weight: .medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(viewModel.timelineGrouping == grouping ? Color.accentSubtle : Color.clear)
+                                .foregroundStyle(viewModel.timelineGrouping == grouping ? Color.accent : Color.textDim)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(1)
+                .background(Color.bgElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+
             // Thumbnail size slider
             HStack(spacing: 6) {
                 Image(systemName: "square.grid.3x3")
@@ -269,52 +303,15 @@ struct ThumbnailGridView: View {
     @State private var rubberBandStart: CGPoint?
     @State private var rubberBandCurrent: CGPoint?
     @State private var thumbnailFrames: [String: CGRect] = [:]
+    @State private var headerFrames: [String: CGRect] = [:]
 
     private var gridContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 ZStack(alignment: .topLeading) {
                     LazyVGrid(columns: columns, spacing: 4) {
-                        ForEach(Array(viewModel.photos.enumerated()), id: \.element.id) { index, photo in
-                            ThumbnailCell(
-                                photo: photo,
-                                size: viewModel.thumbnailSize,
-                                onImageTap: {
-                                    viewModel.handleGridClick(item: photo)
-                                },
-                                onCheckboxTap: { isShift in
-                                    viewModel.handleCheckboxClick(item: photo, isShiftPressed: isShift)
-                                }
-                            )
-                            .id(photo.id)
-                            .background(
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: ThumbnailFramePreferenceKey.self,
-                                        value: [photo.id: geo.frame(in: .named("gridCoordSpace"))]
-                                    )
-                                }
-                            )
-                            .onDrag {
-                                guard photo.isLocal else { return NSItemProvider() }
-                                let urls: [URL]
-                                if photo.isSelected {
-                                    urls = viewModel.selectedFileURLs()
-                                } else {
-                                    urls = [URL(fileURLWithPath: photo.fullPath)]
-                                }
-                                let provider = NSItemProvider()
-                                for url in urls {
-                                    provider.registerFileRepresentation(
-                                        forTypeIdentifier: "public.file-url",
-                                        visibility: .all
-                                    ) { completion in
-                                        completion(url, true, nil)
-                                        return nil
-                                    }
-                                }
-                                return provider
-                            }
+                        ForEach(viewModel.photos, id: \.id) { photo in
+                            thumbnailItem(photo: photo)
                         }
                     }
                     .padding(8)
@@ -337,12 +334,16 @@ struct ThumbnailGridView: View {
                 .onPreferenceChange(ThumbnailFramePreferenceKey.self) { frames in
                     thumbnailFrames.merge(frames) { _, new in new }
                 }
+                .onPreferenceChange(HeaderFramePreferenceKey.self) { frames in
+                    headerFrames.merge(frames) { _, new in new }
+                }
                 .background(
                     RubberBandGestureView(
                         onDragStart: { point in
-                            // Only start if not clicking on a thumbnail
+                            // Only start if not clicking on a thumbnail or header
                             let hitsThumbnail = thumbnailFrames.values.contains { $0.contains(point) }
-                            if !hitsThumbnail {
+                            let hitsHeader = headerFrames.values.contains { $0.contains(point) }
+                            if !hitsThumbnail && !hitsHeader {
                                 rubberBandStart = point
                                 rubberBandCurrent = point
                             }
@@ -355,9 +356,121 @@ struct ThumbnailGridView: View {
                         onDragEnded: {
                             rubberBandStart = nil
                             rubberBandCurrent = nil
+                        },
+                        onClickAt: { point in
+                            // Check if click was on a header
+                            for (key, frame) in headerFrames where frame.contains(point) {
+                                viewModel.toggleGroupCollapse(key)
+                                break
+                            }
                         }
                     )
                 )
+            }
+            .onChange(of: viewModel.scrollToIndex) { _, newValue in
+                if let index = newValue, index < viewModel.photos.count {
+                    let item = viewModel.photos[index]
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(item.id, anchor: .center)
+                    }
+                    viewModel.scrollToIndex = nil
+                }
+            }
+        }
+    }
+
+    // MARK: - Thumbnail Item (shared between grid and timeline)
+
+    @ViewBuilder
+    private func thumbnailItem(photo: PhotoItem) -> some View {
+        ThumbnailCell(
+            photo: photo,
+            size: viewModel.thumbnailSize,
+            onImageTap: {
+                viewModel.handleGridClick(item: photo)
+            },
+            onCheckboxTap: { isShift in
+                viewModel.handleCheckboxClick(item: photo, isShiftPressed: isShift)
+            }
+        )
+        .id(photo.id)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: ThumbnailFramePreferenceKey.self,
+                    value: [photo.id: geo.frame(in: .named("gridCoordSpace"))]
+                )
+            }
+        )
+        .onDrag {
+            guard photo.isLocal else { return NSItemProvider() }
+            let urls: [URL]
+            if photo.isSelected {
+                urls = viewModel.selectedFileURLs()
+            } else {
+                urls = [URL(fileURLWithPath: photo.fullPath)]
+            }
+            let provider = NSItemProvider()
+            for url in urls {
+                provider.registerFileRepresentation(
+                    forTypeIdentifier: "public.file-url",
+                    visibility: .all
+                ) { completion in
+                    completion(url, true, nil)
+                    return nil
+                }
+            }
+            return provider
+        }
+    }
+
+    // MARK: - Timeline Content (grouped, no rubber band)
+
+    private var timelineContent: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(viewModel.groupedPhotos, id: \.key) { group in
+                        // Section header
+                        VStack(spacing: 0) {
+                            HStack(spacing: 6) {
+                                Image(systemName: viewModel.collapsedGroups.contains(group.key) ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Color.textDim)
+                                    .frame(width: 12)
+                                Text(group.key)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Color.textPrimary)
+                                Text("\(group.photos.count)")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.textDim)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                            Rectangle().fill(Color.borderSubtle).frame(height: 1)
+                        }
+                        .background(Color.bgElevated)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            viewModel.toggleGroupCollapse(group.key)
+                        }
+                        .zIndex(1)
+                        .id("header_\(group.key)")
+
+                        // Photos grid (if not collapsed)
+                        if !viewModel.collapsedGroups.contains(group.key) {
+                            LazyVGrid(columns: columns, spacing: 4) {
+                                ForEach(group.photos, id: \.id) { photo in
+                                    thumbnailItem(photo: photo)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 4)
+                        }
+                    }
+                }
+                .padding(.top, 4)
             }
             .onChange(of: viewModel.scrollToIndex) { _, newValue in
                 if let index = newValue, index < viewModel.photos.count {
@@ -402,18 +515,27 @@ struct ThumbnailFramePreferenceKey: PreferenceKey {
     }
 }
 
+struct HeaderFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 // MARK: - Rubber Band Gesture View (NSView-based for raw mouse events)
 
 struct RubberBandGestureView: NSViewRepresentable {
     let onDragStart: (CGPoint) -> Void
     let onDragChanged: (CGPoint) -> Void
     let onDragEnded: () -> Void
+    var onClickAt: ((CGPoint) -> Void)?
 
     func makeNSView(context: Context) -> RubberBandNSView {
         let view = RubberBandNSView()
         view.onDragStart = onDragStart
         view.onDragChanged = onDragChanged
         view.onDragEnded = onDragEnded
+        view.onClickAt = onClickAt
         return view
     }
 
@@ -421,6 +543,7 @@ struct RubberBandGestureView: NSViewRepresentable {
         nsView.onDragStart = onDragStart
         nsView.onDragChanged = onDragChanged
         nsView.onDragEnded = onDragEnded
+        nsView.onClickAt = onClickAt
     }
 }
 
@@ -428,27 +551,39 @@ class RubberBandNSView: NSView {
     var onDragStart: ((CGPoint) -> Void)?
     var onDragChanged: ((CGPoint) -> Void)?
     var onDragEnded: (() -> Void)?
+    var onClickAt: ((CGPoint) -> Void)?
 
     private var isDragging = false
+    private var didDrag = false
+    private var mouseDownPoint: CGPoint = .zero
 
     override func mouseDown(with event: NSEvent) {
         let loc = convert(event.locationInWindow, from: nil)
-        // Flip Y for SwiftUI coordinate space (origin top-left)
         let flipped = CGPoint(x: loc.x, y: bounds.height - loc.y)
+        mouseDownPoint = flipped
         isDragging = true
+        didDrag = false
         onDragStart?(flipped)
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
+        didDrag = true
         let loc = convert(event.locationInWindow, from: nil)
         let flipped = CGPoint(x: loc.x, y: bounds.height - loc.y)
         onDragChanged?(flipped)
     }
 
     override func mouseUp(with event: NSEvent) {
+        let wasDrag = didDrag
         isDragging = false
+        didDrag = false
         onDragEnded?()
+
+        // If it was a click (no drag), notify with the position
+        if !wasDrag {
+            onClickAt?(mouseDownPoint)
+        }
     }
 }
 
@@ -594,5 +729,37 @@ struct ThumbnailCell: View {
         if photo.isHighlighted { return 3 }
         if photo.isSelected { return 2 }
         return 0
+    }
+}
+
+// MARK: - Section Header Tap View (NSView-based, captures clicks before rubber band)
+
+struct SectionHeaderTapView: NSViewRepresentable {
+    let onTap: () -> Void
+
+    func makeNSView(context: Context) -> SectionHeaderTapNSView {
+        let view = SectionHeaderTapNSView()
+        view.onTap = onTap
+        return view
+    }
+
+    func updateNSView(_ nsView: SectionHeaderTapNSView, context: Context) {
+        nsView.onTap = onTap
+    }
+}
+
+class SectionHeaderTapNSView: NSView {
+    var onTap: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        // Consume — don't let rubber band see it
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onTap?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        // Consume — don't start rubber band
     }
 }

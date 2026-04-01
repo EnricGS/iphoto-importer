@@ -24,8 +24,12 @@ final class PhotoItem: Identifiable, Hashable {
     /// Video rotation in degrees (0, 90, 180, 270) from track header metadata.
     var videoRotation: Int = 0
 
-    /// Reverse-geocoded location name (city or city, country).
+    /// Reverse-geocoded location name (city).
     var location: String?
+
+    /// Raw GPS coordinates (for deferred geocoding).
+    var gpsLatitude: Double?
+    var gpsLongitude: Double?
 
     /// Reference to the device camera file (only for device items, nil for local).
     var cameraFile: ICCameraFile?

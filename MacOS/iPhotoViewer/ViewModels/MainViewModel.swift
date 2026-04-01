@@ -80,6 +80,18 @@ final class MainViewModel {
     /// Sort order: false = newest first, true = oldest first
     var sortAscending: Bool = false
 
+    /// Timeline vs grid mode
+    var isTimelineMode: Bool = false
+
+    /// Timeline grouping level
+    var timelineGrouping: TimelineGrouping = .month
+
+    /// Collapsed group keys
+    var collapsedGroups: Set<String> = []
+
+    /// Grouped photos for timeline display
+    var groupedPhotos: [(key: String, photos: [PhotoItem])] = []
+
     /// Counts by type (for filter toggle labels)
     var photoCount: Int = 0
     var videoCount: Int = 0
@@ -155,6 +167,62 @@ final class MainViewModel {
         applyFilter()
     }
 
+    func toggleTimelineMode() {
+        isTimelineMode.toggle()
+    }
+
+    func setTimelineGrouping(_ grouping: TimelineGrouping) {
+        timelineGrouping = grouping
+        collapsedGroups.removeAll()
+        rebuildGroups()
+    }
+
+    func toggleGroupCollapse(_ key: String) {
+        print("[Timeline] Toggle collapse: \(key), was collapsed: \(collapsedGroups.contains(key))")
+        if collapsedGroups.contains(key) {
+            collapsedGroups.remove(key)
+        } else {
+            collapsedGroups.insert(key)
+        }
+    }
+
+    private static let catalanMonths = [
+        "Gener", "Febrer", "Març", "Abril", "Maig", "Juny",
+        "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"
+    ]
+
+    private func groupKey(for date: Date?) -> String {
+        guard let date else { return "Sense data" }
+        let cal = Calendar.current
+        switch timelineGrouping {
+        case .year:
+            return "\(cal.component(.year, from: date))"
+        case .month:
+            let m = cal.component(.month, from: date)
+            let y = cal.component(.year, from: date)
+            return "\(Self.catalanMonths[m - 1]) \(y)"
+        case .day:
+            let d = cal.component(.day, from: date)
+            let m = cal.component(.month, from: date)
+            let y = cal.component(.year, from: date)
+            return "\(d) \(Self.catalanMonths[m - 1]) \(y)"
+        }
+    }
+
+    private func rebuildGroups() {
+        var dict: [String: [PhotoItem]] = [:]
+        var order: [String] = []
+        for photo in photos {
+            let key = groupKey(for: photo.dateTaken)
+            if dict[key] == nil {
+                order.append(key)
+                dict[key] = []
+            }
+            dict[key]!.append(photo)
+        }
+        groupedPhotos = order.map { (key: $0, photos: dict[$0]!) }
+    }
+
     // MARK: - Filter
 
     /// Applies the photo/video filter toggles to the photos collection.
@@ -191,6 +259,7 @@ final class MainViewModel {
             loadDeviceThumbnails()
         }
 
+        rebuildGroups()
         updateStatusMessage()
     }
 
@@ -392,13 +461,7 @@ final class MainViewModel {
                 do {
                     let placemarks = try await geocoder.reverseGeocodeLocation(location)
                     if let placemark = placemarks.first {
-                        let city = placemark.locality
-                        let country = placemark.country
-                        if let city {
-                            photo.location = country != nil ? "\(city), \(country!)" : city
-                        } else if let country {
-                            photo.location = country
-                        }
+                        photo.location = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea
                     }
                 } catch {
                     // Geocoding failed (rate limit, network, etc.) — skip
@@ -422,6 +485,7 @@ final class MainViewModel {
             loadViewerImage(for: item)
         } else {
             isViewerOpen = true
+            isImportPanelOpen = false  // Auto-collapse panel when viewing a photo
             loadViewerImage(for: item)
         }
     }
@@ -928,14 +992,31 @@ final class MainViewModel {
     // MARK: - Import Panel
 
     func toggleImportPanel() {
+        if isDeviceBrowseMode {
+            exitDeviceBrowseMode()
+            return
+        }
         isImportPanelOpen.toggle()
         if isImportPanelOpen {
-            deviceService.statusMessage = "Import panel open. Press 'Detect' to scan for devices."
+            // Auto-detect devices
+            Task { await autoConnectDevice() }
         }
     }
 
     func detectDevices() async {
         await deviceService.detectDevices()
+    }
+
+    /// Auto flow: detect → select single device → browse automatically
+    private func autoConnectDevice() async {
+        await deviceService.detectDevices()
+
+        if deviceService.devices.count == 1 {
+            // Auto-select the only device and browse
+            deviceService.selectedDevice = deviceService.devices[0]
+            await browseDevice()
+        }
+        // Si 0 o >1 dispositius, el panell d'import queda obert per selecció manual
     }
 
     // MARK: - Device Browse
@@ -950,10 +1031,9 @@ final class MainViewModel {
             savedOpenFolders = openFolders
             savedCurrentFolder = currentFolderPath
 
-            // Enter browse mode
+            // Enter browse mode (keep import panel open for status)
             isDeviceBrowseMode = true
             closeViewer()
-            isImportPanelOpen = false
 
             // Set device photos in the grid (sorted by date)
             allPhotos = items.sorted { a, b in
@@ -970,10 +1050,10 @@ final class MainViewModel {
                 self?.exitDeviceBrowseMode()
             }
 
-            // Load thumbnails from device in background
+            // Load thumbnails from device in background (no location in browse — too slow)
             loadDeviceThumbnails()
         } catch {
-            deviceService.statusMessage = "Browse error: \(error.localizedDescription)"
+            deviceService.statusMessage = "Error de navegació: \(error.localizedDescription)"
         }
     }
 
@@ -987,6 +1067,34 @@ final class MainViewModel {
                 if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
                     photo.thumbnail = thumb
                 }
+            }
+        }
+    }
+
+    private var deviceLocationTask: Task<Void, Never>?
+
+    private func loadDeviceLocations() {
+        deviceLocationTask?.cancel()
+        let photosCopy = photos.filter { !$0.isLocal && $0.location == nil && $0.gpsLatitude != nil }
+        let geocoder = CLGeocoder()
+
+        deviceLocationTask = Task {
+            for photo in photosCopy {
+                guard !Task.isCancelled,
+                      let lat = photo.gpsLatitude,
+                      let lon = photo.gpsLongitude else { continue }
+
+                let location = CLLocation(latitude: lat, longitude: lon)
+                do {
+                    let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                    if let placemark = placemarks.first {
+                        photo.location = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea
+                    }
+                } catch {
+                    // Geocoding failed — skip
+                }
+
+                try? await Task.sleep(for: .milliseconds(500))
             }
         }
     }
@@ -1006,7 +1114,7 @@ final class MainViewModel {
 
         // Stay in device browse mode — just deselect imported items
         deselectAll()
-        statusMessage = "\(imported) file(s) imported to \(dest). \(allPhotos.count) files on device."
+        statusMessage = "\(imported) fitxer(s) importat(s) a \(dest). \(allPhotos.count) fitxers al dispositiu."
     }
 
     func deleteSelectedFromDevice() async {
@@ -1015,11 +1123,11 @@ final class MainViewModel {
         guard !files.isEmpty else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Delete from Device"
-        alert.informativeText = "Permanently delete \(files.count) file(s) from \(deviceService.selectedDevice?.name ?? "device")?\n\nThis cannot be undone."
+        alert.messageText = "Eliminar del dispositiu"
+        alert.informativeText = "Eliminar permanentment \(files.count) fitxer(s) de \(deviceService.selectedDevice?.name ?? "dispositiu")?\n\nAquesta acció no es pot desfer."
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Eliminar")
+        alert.addButton(withTitle: "Cancel·lar")
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -1033,13 +1141,14 @@ final class MainViewModel {
         photoCount = allPhotos.filter { !$0.isVideo }.count
         videoCount = allPhotos.filter { $0.isVideo }.count
         applyFilter()
-        statusMessage = "\(files.count) file(s) deleted. \(allPhotos.count) remaining on device."
+        statusMessage = "\(files.count) fitxer(s) eliminat(s). \(allPhotos.count) restants al dispositiu."
     }
 
     func exitDeviceBrowseMode() {
         guard isDeviceBrowseMode else { return }
 
         thumbnailTask?.cancel()
+        deviceLocationTask?.cancel()
         closeViewer()
         deviceService.closeSession()
         deviceService.onDeviceDisconnected = nil

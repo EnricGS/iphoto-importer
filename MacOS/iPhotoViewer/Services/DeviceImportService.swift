@@ -28,7 +28,7 @@ final class DeviceImportService: NSObject {
     var devices: [DeviceInfo] = []
     var selectedDevice: DeviceInfo?
     var isScanning: Bool = false
-    var statusMessage: String = "Connect an iPhone or camera via USB."
+    var statusMessage: String = "Connecta un iPhone o càmera per USB."
     var importProgress: Double = 0
     var isImporting: Bool = false
     var isBrowsing: Bool = false
@@ -64,12 +64,13 @@ final class DeviceImportService: NSObject {
     private var sessionContinuation: CheckedContinuation<Bool, Never>?
     private var thumbnailContinuations: [String: CheckedContinuation<CGImage?, Never>] = [:]
     private var deleteContinuation: CheckedContinuation<Void, Never>?
+    private var metadataContinuations: [String: CheckedContinuation<[AnyHashable: Any]?, Never>] = [:]
 
     // MARK: - Device Detection
 
     func detectDevices() async {
         isScanning = true
-        statusMessage = "Scanning for devices..."
+        statusMessage = "Cercant dispositius..."
         devices = []
         selectedDevice = nil
 
@@ -86,9 +87,9 @@ final class DeviceImportService: NSObject {
         isScanning = false
 
         if devices.isEmpty {
-            statusMessage = "No devices detected. Make sure your iPhone is unlocked and connected via USB."
+            statusMessage = "No s'han trobat dispositius. Assegura't que l'iPhone està desbloquejat i connectat per USB."
         } else {
-            statusMessage = "\(devices.count) device(s) found."
+            statusMessage = "\(devices.count) dispositiu(s) trobat(s)."
         }
     }
 
@@ -104,7 +105,7 @@ final class DeviceImportService: NSObject {
         let icDevice = device.icDevice
         isImporting = true
         importProgress = 0
-        statusMessage = "Connecting to \(device.name)..."
+        statusMessage = "Connectant amb \(device.name)..."
 
         // Open session
         icDevice.delegate = self
@@ -118,11 +119,11 @@ final class DeviceImportService: NSObject {
 
         guard opened else {
             isImporting = false
-            throw DeviceImportError.importFailed("Could not open device session. Make sure the iPhone is unlocked and you tapped 'Trust'.")
+            throw DeviceImportError.importFailed("No s'ha pogut obrir la sessió. Assegura't que l'iPhone està desbloquejat i has premut 'Confiar'.")
         }
 
         // Wait for file enumeration
-        statusMessage = "Reading files from \(device.name)..."
+        statusMessage = "Llegint fitxers de \(device.name)..."
         try? await Task.sleep(for: .seconds(3))
 
         // Collect media files
@@ -131,7 +132,7 @@ final class DeviceImportService: NSObject {
         if files.isEmpty {
             try? await icDevice.requestCloseSession()
             isImporting = false
-            statusMessage = "No photos or videos found on device."
+            statusMessage = "No s'han trobat fotos ni vídeos al dispositiu."
             return 0
         }
 
@@ -152,7 +153,7 @@ final class DeviceImportService: NSObject {
         for file in files {
             downloadedCount += 1
             let fileName = file.name ?? "unknown"
-            statusMessage = "Importing \(downloadedCount)/\(totalToDownload): \(fileName)"
+            statusMessage = "Importat \(downloadedCount)/\(totalToDownload): \(fileName)"
             importProgress = Double(downloadedCount) / Double(totalToDownload) * 100
 
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -181,7 +182,7 @@ final class DeviceImportService: NSObject {
         try? await icDevice.requestCloseSession()
         isImporting = false
         importProgress = 100
-        statusMessage = "\(downloadedCount) file(s) imported."
+        statusMessage = "\(downloadedCount) fitxer(s) importat(s)."
 
         return downloadedCount
     }
@@ -196,7 +197,7 @@ final class DeviceImportService: NSObject {
 
         let icDevice = device.icDevice
         isBrowsing = true
-        statusMessage = "Connecting to \(device.name)..."
+        statusMessage = "Connectant amb \(device.name)..."
 
         icDevice.delegate = self
 
@@ -204,7 +205,7 @@ final class DeviceImportService: NSObject {
         var opened = false
         for attempt in 1...3 {
             logToFile("[Browse] Open session attempt \(attempt) for \(device.name)...")
-            statusMessage = "Connecting to \(device.name)... (attempt \(attempt))"
+            statusMessage = "Connectant amb \(device.name)... (intent \(attempt))"
 
             opened = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
                 sessionContinuation = cont
@@ -218,22 +219,22 @@ final class DeviceImportService: NSObject {
 
         guard opened else {
             isBrowsing = false
-            throw DeviceImportError.importFailed("Could not open device session. Make sure the iPhone is unlocked and you tapped 'Trust'.")
+            throw DeviceImportError.importFailed("No s'ha pogut obrir la sessió. Assegura't que l'iPhone està desbloquejat i has premut 'Confiar'.")
         }
 
-        statusMessage = "Reading files from \(device.name)..."
+        statusMessage = "Llegint fitxers de \(device.name)..."
         try? await Task.sleep(for: .seconds(3))
 
         let files = collectMediaFiles(from: icDevice)
 
         if files.isEmpty {
             isBrowsing = false
-            statusMessage = "No photos or videos found on device."
+            statusMessage = "No s'han trobat fotos ni vídeos al dispositiu."
             return []
         }
 
         let items = files.map { PhotoItem(cameraFile: $0, deviceId: device.id) }
-        statusMessage = "\(items.count) files found on \(device.name). Select photos to import."
+        statusMessage = "\(items.count) fitxers trobats a \(device.name). Selecciona les fotos a importar."
         return items
     }
 
@@ -257,6 +258,28 @@ final class DeviceImportService: NSObject {
 
         guard let cgImage else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    /// Requests GPS coordinates from device file metadata.
+    func requestGPSLocation(for file: ICCameraFile) async -> (latitude: Double, longitude: Double)? {
+        let key = "meta_\(file.name ?? UUID().uuidString)"
+        let metadata: [AnyHashable: Any]? = await withCheckedContinuation { (cont: CheckedContinuation<[AnyHashable: Any]?, Never>) in
+            metadataContinuations[key] = cont
+            file.requestMetadata()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                if let self, let pending = self.metadataContinuations.removeValue(forKey: key) {
+                    pending.resume(returning: nil)
+                }
+            }
+        }
+
+        guard let metadata,
+              let gps = metadata["{GPS}"] as? [String: Any] ?? metadata["GPS"] as? [String: Any],
+              let lat = gps["Latitude"] as? Double,
+              let lon = gps["Longitude"] as? Double else { return nil }
+        let latRef = gps["LatitudeRef"] as? String ?? "N"
+        let lonRef = gps["LongitudeRef"] as? String ?? "E"
+        return (latRef == "S" ? -lat : lat, lonRef == "W" ? -lon : lon)
     }
 
     /// Imports only the specified files to a destination folder.
@@ -283,7 +306,7 @@ final class DeviceImportService: NSObject {
         for file in files {
             downloadedCount += 1
             let fileName = file.name ?? "unknown"
-            statusMessage = "Importing \(downloadedCount)/\(totalToDownload): \(fileName)"
+            statusMessage = "Importat \(downloadedCount)/\(totalToDownload): \(fileName)"
             importProgress = Double(downloadedCount) / Double(totalToDownload) * 100
 
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -307,7 +330,7 @@ final class DeviceImportService: NSObject {
 
         isImporting = false
         importProgress = 100
-        statusMessage = "\(downloadedCount) file(s) imported."
+        statusMessage = "\(downloadedCount) fitxer(s) importat(s)."
         return downloadedCount
     }
 
@@ -317,7 +340,7 @@ final class DeviceImportService: NSObject {
         let icDevice = device.icDevice
 
         isImporting = true
-        statusMessage = "Deleting \(files.count) file(s) from \(device.name)..."
+        statusMessage = "Eliminant \(files.count) fitxer(s) de \(device.name)..."
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             self.deleteContinuation = cont
@@ -331,7 +354,7 @@ final class DeviceImportService: NSObject {
         }
 
         isImporting = false
-        statusMessage = "\(files.count) file(s) deleted from device."
+        statusMessage = "\(files.count) fitxer(s) eliminat(s) del dispositiu."
     }
 
     /// Downloads a single file to a temp directory and returns the local path.
@@ -458,7 +481,7 @@ extension DeviceImportService: ICDeviceBrowserDelegate {
 
             if !devices.contains(where: { $0.id == info.id }) {
                 devices.append(info)
-                statusMessage = "\(devices.count) device(s) found."
+                statusMessage = "\(devices.count) dispositiu(s) trobat(s)."
             }
         }
     }
@@ -495,7 +518,14 @@ extension DeviceImportService: ICCameraDeviceDelegate {
     }
     nonisolated func cameraDeviceDidChangeCapability(_ camera: ICCameraDevice) {}
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didRenameItems items: [ICCameraItem]) {}
-    nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceiveMetadata metadata: [AnyHashable : Any]?, for item: ICCameraItem, error: (any Error)?) {}
+    nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceiveMetadata metadata: [AnyHashable : Any]?, for item: ICCameraItem, error: (any Error)?) {
+        Task { @MainActor in
+            let key = "meta_\(item.name ?? "")"
+            if let cont = metadataContinuations.removeValue(forKey: key) {
+                cont.resume(returning: metadata)
+            }
+        }
+    }
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceivePTPEvent eventData: Data) {}
     nonisolated func deviceDidBecomeReady(withCompleteContentCatalog device: ICCameraDevice) {}
     nonisolated func cameraDeviceDidEnableAccessRestriction(_ device: ICDevice) {}
