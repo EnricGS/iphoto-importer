@@ -3,7 +3,7 @@ import AppKit
 
 /// iPhoto Manager - macOS native image viewer and manager.
 @main
-struct iPhotoViewerApp: App {
+struct iPhotoManagerApp: App {
     init() {
         // Set app icon from bundled resource
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),

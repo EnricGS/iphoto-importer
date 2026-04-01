@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>iPhotoViewer</string>
+    <string>iPhotoManager</string>
     <key>CFBundleIdentifier</key>
-    <string>com.iphotoviewer.app</string>
+    <string>com.iphotomanager.app</string>
     <key>CFBundleName</key>
     <string>iPhoto Manager</string>
     <key>CFBundleDisplayName</key>

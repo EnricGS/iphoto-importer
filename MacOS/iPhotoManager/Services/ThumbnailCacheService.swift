@@ -22,7 +22,7 @@ actor ThumbnailCacheService {
 
     init() {
         let appSupport = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        cacheFolder = appSupport.appendingPathComponent("com.iphotoviewer.thumbnails", isDirectory: true)
+        cacheFolder = appSupport.appendingPathComponent("com.iphotomanager.thumbnails", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: cacheFolder, withIntermediateDirectories: true)
     }

@@ -52,6 +52,11 @@ final class PhotoItem: Identifiable, Hashable {
         return Self.imageExtensions.contains(ext)
     }
 
+    var isRaw: Bool {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        return Self.rawExtensions.contains(ext)
+    }
+
     var fileSizeFormatted: String {
         ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
     }
@@ -59,11 +64,46 @@ final class PhotoItem: Identifiable, Hashable {
     // MARK: - Supported extensions
 
     static let imageExtensions: Set<String> = [
-        "jpg", "jpeg", "png", "bmp", "gif", "webp", "tiff", "tif", "heic", "heif"
+        // Standard
+        "jpg", "jpeg", "png", "bmp", "gif", "webp", "tiff", "tif",
+        // Apple
+        "heic", "heif",
+        // Modern
+        "avif", "jxl",
+        // RAW — Canon
+        "cr2", "cr3", "crw",
+        // RAW — Nikon
+        "nef", "nrw",
+        // RAW — Sony
+        "arw", "srf", "sr2",
+        // RAW — Adobe
+        "dng",
+        // RAW — Fujifilm
+        "raf",
+        // RAW — Olympus / OM System
+        "orf",
+        // RAW — Panasonic
+        "rw2",
+        // RAW — Pentax
+        "pef",
+        // RAW — Samsung
+        "srw",
+        // RAW — Leica
+        "rwl",
+        // Adobe
+        "psd",
     ]
 
     static let videoExtensions: Set<String> = [
-        "mp4", "mov", "avi", "mkv"
+        "mp4", "mov", "avi", "mkv",
+        "m4v", "webm", "3gp",
+        "mts", "m2ts", "ts",
+    ]
+
+    /// Extensions que són RAW (per optimitzar amb preview embegut)
+    static let rawExtensions: Set<String> = [
+        "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2",
+        "dng", "raf", "orf", "rw2", "pef", "srw", "rwl",
     ]
 
     static let allExtensions: Set<String> = imageExtensions.union(videoExtensions)

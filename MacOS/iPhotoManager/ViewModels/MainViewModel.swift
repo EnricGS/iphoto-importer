@@ -775,6 +775,22 @@ final class MainViewModel {
             return
         }
 
+        // 2.5. Quick preview (embedded JPEG for RAW/HEIC — near instant)
+        if item.isRaw || item.fullPath.lowercased().hasSuffix(".heic") || item.fullPath.lowercased().hasSuffix(".heif") {
+            let path = item.fullPath
+            Task.detached(priority: .userInitiated) { [fileService] in
+                if let preview = fileService.loadQuickPreview(at: path) {
+                    await MainActor.run { [weak self] in
+                        guard let self, self.viewerCurrentItem == item else { return }
+                        // Only set if we haven't loaded the full image yet
+                        if self.imageCache.get(path) == nil {
+                            self.viewerImage = preview
+                        }
+                    }
+                }
+            }
+        }
+
         // 3. Load full resolution in background
         Task {
             await loadFullImage(for: item)

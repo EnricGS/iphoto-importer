@@ -97,7 +97,9 @@ actor FileService {
     // MARK: - Thumbnail Generation
 
     /// Generates a thumbnail for an image file using ImageIO.
-    /// Uses CGImageSource for fast, EXIF-aware decoding.
+    /// Strategy (Photo Mechanic-style):
+    ///   1. Try embedded JPEG preview (instant for RAW/HEIC)
+    ///   2. Fall back to full decode with downscale
     nonisolated func generateThumbnail(for path: String, maxSize: Int = 512) -> NSImage? {
         let url = URL(fileURLWithPath: path)
         let ext = url.pathExtension.lowercased()
@@ -107,15 +109,23 @@ actor FileService {
             return generateVideoThumbnail(for: path, maxSize: maxSize)
         }
 
-        // Image thumbnail via ImageIO (respects EXIF orientation)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             return nil
         }
 
+        // Strategy 1: Try embedded preview/thumbnail (instant, no full decode)
+        // RAW and HEIC files always have a usable embedded JPEG preview
+        if PhotoItem.rawExtensions.contains(ext) || ext == "heic" || ext == "heif" {
+            if let preview = extractEmbeddedPreview(source: source, maxSize: maxSize) {
+                return preview
+            }
+        }
+
+        // Strategy 2: Full decode with downscale (standard images)
         let options: [CFString: Any] = [
             kCGImageSourceThumbnailMaxPixelSize: maxSize,
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true, // Apply EXIF orientation
+            kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true
         ]
 
@@ -124,6 +134,29 @@ actor FileService {
         }
 
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    /// Extracts the embedded JPEG preview from a RAW/HEIC file.
+    /// This is the Photo Mechanic trick: the preview is pre-rendered by the camera,
+    /// so extraction is nearly instant vs. full RAW decode.
+    nonisolated func extractEmbeddedPreview(source: CGImageSource, maxSize: Int = 512) -> NSImage? {
+        // First try: kCGImageSourceCreateThumbnailFromImageIfAbsent = false
+        // This only returns a thumbnail if one is already embedded (no decode)
+        let fastOptions: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: maxSize,
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+
+        if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, fastOptions as CFDictionary) {
+            // Verify the preview is usable (at least 200px)
+            if cgImage.width >= 200 || cgImage.height >= 200 {
+                return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            }
+        }
+
+        return nil
     }
 
     /// Generates a thumbnail from a video file using AVAssetImageGenerator.
@@ -140,6 +173,41 @@ actor FileService {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - Quick Preview Loading
+
+    /// Loads a fast preview for the viewer (level 2 of the pyramid).
+    /// For RAW/HEIC: extracts the embedded preview (~1-2MP, instant).
+    /// For standard images: loads at reduced resolution.
+    nonisolated func loadQuickPreview(at path: String, maxSize: Int = 2048) -> NSImage? {
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
+
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return nil
+        }
+
+        // RAW/HEIC: try embedded preview first (instant)
+        if PhotoItem.rawExtensions.contains(ext) || ext == "heic" || ext == "heif" {
+            if let preview = extractEmbeddedPreview(source: source, maxSize: maxSize) {
+                return preview
+            }
+        }
+
+        // Standard: decode at reduced resolution
+        let options: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: maxSize,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     // MARK: - Full Image Loading

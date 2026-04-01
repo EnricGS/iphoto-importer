@@ -3,7 +3,7 @@ import AppKit
 import ImageCaptureCore
 import os.log
 
-private let logger = Logger(subsystem: "com.iphotoviewer", category: "import")
+private let logger = Logger(subsystem: "com.iphotomanager", category: "import")
 
 private func logToFile(_ msg: String) {
     let path = NSHomeDirectory() + "/iphoto_import.log"
@@ -391,7 +391,7 @@ final class DeviceImportService: NSObject {
         guard let device = selectedDevice else { return nil }
         let icDevice = device.icDevice
 
-        let tempDir = NSTemporaryDirectory() + "iPhotoViewer/"
+        let tempDir = NSTemporaryDirectory() + "iPhotoManager/"
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
 
         let destURL = URL(fileURLWithPath: tempDir)
@@ -460,9 +460,7 @@ final class DeviceImportService: NSObject {
     // MARK: - Helpers
 
     private func collectMediaFiles(from device: ICCameraDevice) -> [ICCameraFile] {
-        let photoExts: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "webp", "bmp", "gif", "tiff", "tif"]
-        let videoExts: Set<String> = ["mp4", "mov", "avi", "mkv", "m4v"]
-        let allExts = photoExts.union(videoExts)
+        let allExts = PhotoItem.allExtensions
 
         var files: [ICCameraFile] = []
         if let mediaFiles = device.mediaFiles {

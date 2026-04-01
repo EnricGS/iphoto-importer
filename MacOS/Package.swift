@@ -4,17 +4,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "iPhotoViewer",
+    name: "iPhotoManager",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "iPhotoViewer", targets: ["iPhotoViewer"])
+        .executable(name: "iPhotoManager", targets: ["iPhotoManager"])
     ],
     targets: [
         .executableTarget(
-            name: "iPhotoViewer",
-            path: "iPhotoViewer",
+            name: "iPhotoManager",
+            path: "iPhotoManager",
             resources: [
                 .process("Resources")
             ]
