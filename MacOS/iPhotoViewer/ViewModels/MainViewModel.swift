@@ -29,7 +29,7 @@ final class MainViewModel {
 
     // MARK: - General State
 
-    var statusMessage: String = "Open a folder to start viewing images."
+    var statusMessage: String = "Obre una carpeta per veure imatges."
     var hasError: Bool = false
     var isLoading: Bool = false
     var isCopying: Bool = false
@@ -392,7 +392,7 @@ final class MainViewModel {
 
     func openFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Select an image folder"
+        panel.title = "Selecciona una carpeta d'imatges"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
@@ -408,7 +408,7 @@ final class MainViewModel {
         // If folder is already open, skip
         if openFolders.contains(path) {
             let folderName = (path as NSString).lastPathComponent
-            statusMessage = "Folder already open: \(folderName)"
+            statusMessage = "Carpeta ja oberta: \(folderName)"
             return
         }
 
@@ -418,7 +418,7 @@ final class MainViewModel {
 
         isLoading = true
         hasError = false
-        statusMessage = "Scanning folder..."
+        statusMessage = "Escanejant carpeta..."
         currentFolderPath = path
 
         // Close viewer if open
@@ -427,7 +427,7 @@ final class MainViewModel {
         do {
             let items = try await fileService.scanFolder(at: path, recursive: recursiveFolders.contains(path)) { [weak self] scanned, found, file in
                 Task { @MainActor [weak self] in
-                    self?.statusMessage = "Scanning... \(found) images found — \(file)"
+                    self?.statusMessage = "Escanejant... \(found) imatges trobades — \(file)"
                 }
             }
 
@@ -458,7 +458,7 @@ final class MainViewModel {
             loadLocations()
         } catch {
             hasError = true
-            statusMessage = "Error scanning folder: \(error.localizedDescription)"
+            statusMessage = "Error escanejant carpeta: \(error.localizedDescription)"
         }
 
         isLoading = false
@@ -525,18 +525,18 @@ final class MainViewModel {
         photoCount = 0
         videoCount = 0
 
-        statusMessage = "Open a folder to start viewing images."
+        statusMessage = "Obre una carpeta per veure imatges."
     }
 
     /// Updates the status message with folder and image counts.
     private func updateStatusMessage() {
         if openFolders.isEmpty {
-            statusMessage = "Open a folder to start viewing images."
+            statusMessage = "Obre una carpeta per veure imatges."
         } else if openFolders.count == 1 {
             let folderName = (openFolders[0] as NSString).lastPathComponent
-            statusMessage = "\(allPhotos.count) image(s) from \(folderName)"
+            statusMessage = "\(allPhotos.count) imatge(s) de \(folderName)"
         } else {
-            statusMessage = "\(allPhotos.count) image(s) from \(openFolders.count) folders"
+            statusMessage = "\(allPhotos.count) imatge(s) de \(openFolders.count) carpetes"
         }
     }
 
@@ -1010,25 +1010,25 @@ final class MainViewModel {
 
     func setDestinationFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Select default destination folder"
+        panel.title = "Selecciona carpeta destí per defecte"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
 
         if panel.runModal() == .OK, let url = panel.url {
             destinationFolder = url.path
-            statusMessage = "Destination folder: \(url.path)"
+            statusMessage = "Carpeta destí: \(url.path)"
         }
     }
 
     func clearDestinationFolder() {
         destinationFolder = nil
-        statusMessage = "Destination folder cleared."
+        statusMessage = "Carpeta destí esborrada."
     }
 
     /// Resolves the destination folder: returns the pre-set one if available,
     /// otherwise opens a folder picker. Returns nil if user cancels.
-    private func resolveDestinationFolder(title: String = "Select destination folder") -> String? {
+    private func resolveDestinationFolder(title: String = "Selecciona carpeta destí") -> String? {
         if let dest = destinationFolder, !dest.isEmpty {
             return dest
         }
@@ -1045,7 +1045,7 @@ final class MainViewModel {
     func copySelected() async {
         guard !selectedPhotos.isEmpty else { return }
 
-        guard let dest = resolveDestinationFolder(title: "Select destination for copy") else { return }
+        guard let dest = resolveDestinationFolder(title: "Selecciona destí per copiar") else { return }
 
         await copyFiles(Array(selectedPhotos), to: dest)
     }
@@ -1053,7 +1053,7 @@ final class MainViewModel {
     func copyCurrentPhoto() async {
         guard let item = viewerCurrentItem else { return }
 
-        guard let dest = resolveDestinationFolder(title: "Select destination for copy") else { return }
+        guard let dest = resolveDestinationFolder(title: "Selecciona destí per copiar") else { return }
 
         await copyFiles([item], to: dest)
     }
@@ -1068,14 +1068,14 @@ final class MainViewModel {
             let copied = try await fileService.copyFiles(files, to: destination) { [weak self] current, total, fileName in
                 Task { @MainActor [weak self] in
                     self?.copyProgress = Double(current) / Double(total) * 100
-                    self?.statusMessage = "Copying \(current)/\(total): \(fileName)"
+                    self?.statusMessage = "Copiant \(current)/\(total): \(fileName)"
                 }
             }
             copyProgress = 100
-            statusMessage = "\(copied) file(s) copied to \(destination)"
+            statusMessage = "\(copied) fitxer(s) copiats a \(destination)"
         } catch {
             hasError = true
-            statusMessage = "Error copying: \(error.localizedDescription)"
+            statusMessage = "Error copiant: \(error.localizedDescription)"
         }
 
         isCopying = false
@@ -1094,11 +1094,11 @@ final class MainViewModel {
 
         // Confirm with the user
         let alert = NSAlert()
-        alert.messageText = "Confirm Move"
-        alert.informativeText = "Move \(selectedPhotos.count) file(s) to:\n\(url.path)\n\nThis action cannot be undone."
+        alert.messageText = "Confirmar moviment"
+        alert.informativeText = "Moure \(selectedPhotos.count) fitxer(s) a:\n\(url.path)\n\nAquesta acció no es pot desfer."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Move")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Moure")
+        alert.addButton(withTitle: "Cancel·lar")
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -1113,7 +1113,7 @@ final class MainViewModel {
             let moved = try await fileService.moveFiles(filesToMove, to: url.path) { [weak self] current, total, fileName in
                 Task { @MainActor [weak self] in
                     self?.copyProgress = Double(current) / Double(total) * 100
-                    self?.statusMessage = "Moving \(current)/\(total): \(fileName)"
+                    self?.statusMessage = "Movent \(current)/\(total): \(fileName)"
                 }
             }
             copyProgress = 100
@@ -1128,10 +1128,10 @@ final class MainViewModel {
             photoCount = allPhotos.filter { !$0.isVideo }.count
             videoCount = allPhotos.filter { $0.isVideo }.count
 
-            statusMessage = "\(moved) file(s) moved to \(url.path)"
+            statusMessage = "\(moved) fitxer(s) moguts a \(url.path)"
         } catch {
             hasError = true
-            statusMessage = "Error moving: \(error.localizedDescription)"
+            statusMessage = "Error movent: \(error.localizedDescription)"
         }
 
         isCopying = false
@@ -1142,11 +1142,11 @@ final class MainViewModel {
         guard !selectedPhotos.isEmpty else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Confirm Delete"
-        alert.informativeText = "Move \(selectedPhotos.count) file(s) to Trash?\n\nYou can restore them from Trash if needed."
+        alert.messageText = "Confirmar eliminació"
+        alert.informativeText = "Moure \(selectedPhotos.count) fitxer(s) a la paperera?\n\nEs poden restaurar si cal."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Move to Trash")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Moure a la paperera")
+        alert.addButton(withTitle: "Cancel·lar")
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -1158,7 +1158,7 @@ final class MainViewModel {
         do {
             let deleted = try await fileService.deleteFiles(filesToDelete) { [weak self] current, total, fileName in
                 Task { @MainActor [weak self] in
-                    self?.statusMessage = "Deleting \(current)/\(total): \(fileName)"
+                    self?.statusMessage = "Eliminant \(current)/\(total): \(fileName)"
                 }
             }
 
@@ -1171,10 +1171,10 @@ final class MainViewModel {
             photoCount = allPhotos.filter { !$0.isVideo }.count
             videoCount = allPhotos.filter { $0.isVideo }.count
 
-            statusMessage = "\(deleted) file(s) moved to Trash."
+            statusMessage = "\(deleted) fitxer(s) moguts a la paperera."
         } catch {
             hasError = true
-            statusMessage = "Error deleting: \(error.localizedDescription)"
+            statusMessage = "Error eliminant: \(error.localizedDescription)"
         }
 
         isLoading = false
@@ -1296,7 +1296,7 @@ final class MainViewModel {
         let files = selected.compactMap { $0.cameraFile }
         guard !files.isEmpty else { return }
 
-        guard let dest = resolveDestinationFolder(title: "Select destination for import") else { return }
+        guard let dest = resolveDestinationFolder(title: "Selecciona destí per importar") else { return }
 
         let imported = await deviceService.importSelectedFiles(files, to: dest) { [weak self] current, total, fileName in
             Task { @MainActor [weak self] in

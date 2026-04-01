@@ -18,7 +18,7 @@ struct ActionBarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 HStack(spacing: 2) {
-                    Text("selected")
+                    Text("seleccionats")
                     Text("  ·  ")
                     Text(String(format: "%.1f", viewModel.totalSelectedSizeMB))
                     Text("MB")
@@ -44,7 +44,7 @@ struct ActionBarView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 14))
-                        Text("Import Selected")
+                        Text("Importar seleccionades")
                             .font(.system(size: 12, weight: .medium))
                     }
                 }

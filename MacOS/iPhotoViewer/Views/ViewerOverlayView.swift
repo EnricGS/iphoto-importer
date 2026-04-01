@@ -171,7 +171,7 @@ struct ViewerOverlayView: View {
                 // Bottom info bar
                 HStack {
                     Spacer()
-                    Text("Navigate  |  +/- zoom  |  Tab mode  |  Esc close")
+                    Text("Navegar  |  +/- zoom  |  Tab mode  |  Esc tancar")
                         .font(.system(size: 11))
                         .foregroundStyle(Color.textDim)
                         .opacity(0.6)

@@ -50,7 +50,7 @@ struct ThumbnailGridView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10))
-                    Text("Exit")
+                    Text("Sortir")
                         .font(.system(size: 11, weight: .medium))
                 }
             }
@@ -258,12 +258,12 @@ struct ThumbnailGridView: View {
                     .foregroundStyle(Color.accent)
             }
 
-            Text("Add a folder to view images")
+            Text("Afegeix una carpeta per veure imatges")
                 .font(.system(size: 18, weight: .light))
                 .foregroundStyle(Color.textPrimary)
                 .opacity(0.8)
 
-            Text("or import photos from a device")
+            Text("o importa fotos des d'un dispositiu")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.textDim)
 
@@ -273,7 +273,7 @@ struct ThumbnailGridView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 16))
-                    Text("Add Folder")
+                    Text("Afegir carpeta")
                 }
             }
             .buttonStyle(PrimaryButtonStyle())

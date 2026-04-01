@@ -22,7 +22,7 @@ struct iPhotoViewerApp: App {
         .commands {
             // File menu
             CommandGroup(replacing: .newItem) {
-                Button("Open Folder...") {
+                Button("Obrir carpeta...") {
                     NotificationCenter.default.post(name: .openFolder, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: .command)
@@ -32,12 +32,12 @@ struct iPhotoViewerApp: App {
             CommandGroup(after: .pasteboard) {
                 Divider()
 
-                Button("Select All") {
+                Button("Seleccionar tot") {
                     NotificationCenter.default.post(name: .selectAll, object: nil)
                 }
                 .keyboardShortcut("a", modifiers: .command)
 
-                Button("Deselect All") {
+                Button("Desseleccionar tot") {
                     NotificationCenter.default.post(name: .deselectAll, object: nil)
                 }
                 .keyboardShortcut("d", modifiers: .command)
@@ -45,7 +45,7 @@ struct iPhotoViewerApp: App {
 
             // View menu
             CommandGroup(after: .toolbar) {
-                Button("Toggle Split/Toggle Mode") {
+                Button("Canviar mode split/toggle") {
                     NotificationCenter.default.post(name: .toggleViewMode, object: nil)
                 }
                 .keyboardShortcut(.tab, modifiers: [])

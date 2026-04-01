@@ -23,7 +23,7 @@ struct ViewerPanelView: View {
                 } else if let image = viewModel.viewerImage {
                     imageContent(image)
                 } else {
-                    Text("Select an image")
+                    Text("Selecciona una imatge")
                         .foregroundStyle(Color.textSecondary)
                 }
 
