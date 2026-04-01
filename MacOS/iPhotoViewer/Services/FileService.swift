@@ -74,6 +74,20 @@ actor FileService {
         return results
     }
 
+    // MARK: - GPS Extraction
+
+    /// Extracts GPS coordinates from EXIF metadata of an image file.
+    nonisolated static func extractGPSLocation(at path: String) -> (latitude: Double, longitude: Double)? {
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+              let gps = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any],
+              let lat = gps[kCGImagePropertyGPSLatitude as String] as? Double,
+              let lon = gps[kCGImagePropertyGPSLongitude as String] as? Double else { return nil }
+        let latRef = gps[kCGImagePropertyGPSLatitudeRef as String] as? String ?? "N"
+        let lonRef = gps[kCGImagePropertyGPSLongitudeRef as String] as? String ?? "E"
+        return (latRef == "S" ? -lat : lat, lonRef == "W" ? -lon : lon)
+    }
+
     // MARK: - Thumbnail Generation
 
     /// Generates a thumbnail for an image file using ImageIO.

@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import Combine
+import CoreLocation
 
 /// Main ViewModel for the application. Manages the image viewer,
 /// thumbnail grid, and file management operations.
@@ -258,6 +259,9 @@ final class MainViewModel {
 
             // Load thumbnails in background
             loadThumbnails()
+
+            // Load GPS locations in background (after thumbnails start)
+            loadLocations()
         } catch {
             hasError = true
             statusMessage = "Error scanning folder: \(error.localizedDescription)"
@@ -360,6 +364,48 @@ final class MainViewModel {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Location Loading
+
+    private var locationTask: Task<Void, Never>?
+
+    /// Reverse-geocodes GPS coordinates for local photos that have EXIF GPS data.
+    private func loadLocations() {
+        locationTask?.cancel()
+        let photosCopy = photos.filter { $0.isLocal && $0.location == nil && !$0.isVideo }
+        let geocoder = CLGeocoder()
+        print("[Location] Starting location loading for \(photosCopy.count) photos")
+
+        locationTask = Task {
+            var foundGPS = 0
+            for photo in photosCopy {
+                guard !Task.isCancelled else { return }
+
+                guard let coords = FileService.extractGPSLocation(at: photo.fullPath) else { continue }
+                foundGPS += 1
+                print("[Location] GPS found for \(photo.fileName): \(coords.latitude), \(coords.longitude)")
+
+                let location = CLLocation(latitude: coords.latitude, longitude: coords.longitude)
+                do {
+                    let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                    if let placemark = placemarks.first {
+                        let city = placemark.locality
+                        let country = placemark.country
+                        if let city {
+                            photo.location = country != nil ? "\(city), \(country!)" : city
+                        } else if let country {
+                            photo.location = country
+                        }
+                    }
+                } catch {
+                    // Geocoding failed (rate limit, network, etc.) — skip
+                }
+
+                // Rate limit: small delay between geocoding calls
+                try? await Task.sleep(for: .milliseconds(500))
             }
         }
     }
@@ -979,14 +1025,14 @@ final class MainViewModel {
 
         await deviceService.deleteFiles(files)
 
-        // Remove deleted items from the grid
+        // Remove deleted items from the master list and re-apply filter (which re-sorts)
         for item in selected {
             allPhotos.removeAll { $0 == item }
-            photos.removeAll { $0 == item }
             selectedPhotos.remove(item)
         }
         photoCount = allPhotos.filter { !$0.isVideo }.count
         videoCount = allPhotos.filter { $0.isVideo }.count
+        applyFilter()
         statusMessage = "\(files.count) file(s) deleted. \(allPhotos.count) remaining on device."
     }
 

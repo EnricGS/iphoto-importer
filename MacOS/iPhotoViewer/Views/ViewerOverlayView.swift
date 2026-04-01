@@ -8,6 +8,7 @@ struct ViewerOverlayView: View {
 
     @State private var isDragging = false
     @State private var dragStartOffset: CGSize = .zero
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         ZStack {
@@ -26,39 +27,43 @@ struct ViewerOverlayView: View {
                 imageContent(image)
             }
 
-            // Navigation buttons
-            HStack {
-                // Previous
-                Button {
-                    viewModel.viewerPrevious()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 80)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .buttonStyle(.plain)
-                .opacity(0.5)
-                .padding(.leading, 16)
+            // Navigation overlays — full-height side strips that capture clicks
+            HStack(spacing: 0) {
+                // Left nav zone
+                Color.clear
+                    .frame(width: 80)
+                    .contentShape(Rectangle())
+                    .onTapGesture { viewModel.viewerPrevious() }
+                    .overlay {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 48, height: 80)
+                            .background(Color.black.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .opacity(0.5)
+                            .allowsHitTesting(false)
+                    }
 
-                Spacer()
+                // Center — pass through to image below
+                Color.clear
+                    .allowsHitTesting(false)
 
-                // Next
-                Button {
-                    viewModel.viewerNext()
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 80)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .buttonStyle(.plain)
-                .opacity(0.5)
-                .padding(.trailing, 16)
+                // Right nav zone
+                Color.clear
+                    .frame(width: 80)
+                    .contentShape(Rectangle())
+                    .onTapGesture { viewModel.viewerNext() }
+                    .overlay {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 48, height: 80)
+                            .background(Color.black.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .opacity(0.5)
+                            .allowsHitTesting(false)
+                    }
             }
 
             // Top bar
@@ -159,6 +164,50 @@ struct ViewerOverlayView: View {
                     )
                 )
             }
+        }
+        .focusable()
+        .focused($isFocused)
+        .onAppear { isFocused = true }
+        .onKeyPress(phases: .down) { press in
+            switch press.key {
+            case .escape:
+                viewModel.closeViewer()
+                return .handled
+            case .leftArrow:
+                viewModel.viewerPrevious()
+                return .handled
+            case .rightArrow:
+                viewModel.viewerNext()
+                return .handled
+            case .space:
+                return .handled
+            default:
+                break
+            }
+            switch press.characters {
+            case "+", "=":
+                viewModel.viewerZoomIn()
+                return .handled
+            case "-":
+                viewModel.viewerZoomOut()
+                return .handled
+            case "0":
+                viewModel.viewerZoomReset()
+                return .handled
+            case "f":
+                viewModel.viewerFitToScreen()
+                return .handled
+            case "c" where press.modifiers.isEmpty:
+                Task { await viewModel.copyCurrentPhoto() }
+                return .handled
+            default:
+                break
+            }
+            if press.key == .tab && press.modifiers.isEmpty {
+                viewModel.toggleViewMode()
+                return .handled
+            }
+            return .ignored
         }
     }
 
@@ -279,5 +328,33 @@ class SmoothScrollCaptureNSView: NSView {
         // Flip Y (NSView origin is bottom-left, SwiftUI is top-left)
         let cursorY = (containerSize.height / 2) - loc.y
         action?(event.scrollingDeltaY, cursorX, cursorY)
+    }
+}
+
+// MARK: - Navigation Tap View (NSView-based to avoid SwiftUI gesture conflicts)
+
+struct NavigationTapView: NSViewRepresentable {
+    let onTap: () -> Void
+
+    func makeNSView(context: Context) -> NavigationTapNSView {
+        let view = NavigationTapNSView()
+        view.onTap = onTap
+        return view
+    }
+
+    func updateNSView(_ nsView: NavigationTapNSView, context: Context) {
+        nsView.onTap = onTap
+    }
+}
+
+class NavigationTapNSView: NSView {
+    var onTap: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        // Consume the event
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onTap?()
     }
 }

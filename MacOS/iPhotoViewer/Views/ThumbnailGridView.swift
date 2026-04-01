@@ -510,21 +510,30 @@ struct ThumbnailCell: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 36)
+            .frame(height: 46)
             .allowsHitTesting(false)
 
-            // Date label at bottom (Catalan month + year)
-            if let dateText = Self.catalanDateText(from: photo.dateTaken) {
-                Text(dateText)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .allowsHitTesting(false)
+            // Date and location labels at bottom
+            VStack(alignment: .leading, spacing: 1) {
+                if let dateText = Self.catalanDateText(from: photo.dateTaken) {
+                    Text(dateText)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                if let location = photo.location {
+                    Text(location)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .allowsHitTesting(false)
 
             // Checkbox (top-left, always visible on hover or when selected)
             Image(systemName: photo.isSelected ? "checkmark.circle.fill" : "circle")
