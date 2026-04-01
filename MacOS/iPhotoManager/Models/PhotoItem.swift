@@ -34,6 +34,20 @@ final class PhotoItem: Identifiable, Hashable {
     /// Reference to the device camera file (only for device items, nil for local).
     var cameraFile: ICCameraFile?
 
+    // MARK: - Deduplication
+
+    /// MD5 hash of file content (exact duplicate detection).
+    var md5Hash: String?
+
+    /// Perceptual hash — 64-bit average hash of visual content.
+    var perceptualHash: UInt64?
+
+    /// EXIF fingerprint — hash of camera + datetime + dimensions.
+    var exifFingerprint: String?
+
+    /// Group ID for duplicates (shared by all items in same duplicate group).
+    var duplicateGroupId: String?
+
     // MARK: - UI State
 
     var isSelected: Bool = false

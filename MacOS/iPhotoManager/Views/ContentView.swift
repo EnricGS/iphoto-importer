@@ -36,10 +36,10 @@ struct ContentView: View {
                     .transition(.opacity)
             }
 
-            // Import panel (slide from right)
+            // Import modal (centered overlay)
             if viewModel.isImportPanelOpen {
                 ImportPanelView(viewModel: viewModel)
-                    .transition(.move(edge: .trailing))
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.isOverlayViewerVisible)

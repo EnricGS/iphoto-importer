@@ -32,6 +32,8 @@ final class DeviceImportService: NSObject {
     var importProgress: Double = 0
     var isImporting: Bool = false
     var isBrowsing: Bool = false
+    var browseProgress: Double = 0  // 0-100, progress of file enumeration
+    var browseTotalFiles: Int = 0
 
     /// Callback when device disconnects during browse mode.
     var onDeviceDisconnected: (() -> Void)?
@@ -65,6 +67,7 @@ final class DeviceImportService: NSObject {
     private var thumbnailContinuations: [String: CheckedContinuation<CGImage?, Never>] = [:]
     private var deleteContinuation: CheckedContinuation<Void, Never>?
     private var metadataContinuations: [String: CheckedContinuation<[AnyHashable: Any]?, Never>] = [:]
+    private var catalogContinuation: CheckedContinuation<Void, Never>?
 
     // MARK: - Device Detection
 
@@ -113,6 +116,10 @@ final class DeviceImportService: NSObject {
 
         isScanning = false
 
+        // Final dedup by name (race conditions from didAdd callbacks during sleep)
+        var seenNames = Set<String>()
+        devices = devices.filter { seenNames.insert($0.name).inserted }
+
         if devices.isEmpty {
             statusMessage = "No s'han trobat dispositius. Assegura't que l'iPhone està desbloquejat i connectat per USB."
         } else {
@@ -154,7 +161,7 @@ final class DeviceImportService: NSObject {
         try? await Task.sleep(for: .seconds(3))
 
         // Collect media files
-        let files = collectMediaFiles(from: icDevice)
+        let files = collectMediaFilesAsync(from: icDevice)
 
         if files.isEmpty {
             try? await icDevice.requestCloseSession()
@@ -250,17 +257,50 @@ final class DeviceImportService: NSObject {
         }
 
         statusMessage = "Llegint fitxers de \(device.name)..."
-        try? await Task.sleep(for: .seconds(3))
 
-        let files = collectMediaFiles(from: icDevice)
+        // Wait for device to enumerate all files (catalog ready)
+        // Poll device.mediaFiles with timeout — simpler and more reliable than continuation
+        var catalogReady = false
+        for attempt in 1...15 {
+            logToFile("[Browse] Waiting for catalog... attempt \(attempt)")
+            try? await Task.sleep(for: .seconds(1))
+            if let mediaFiles = icDevice.mediaFiles, !mediaFiles.isEmpty {
+                catalogReady = true
+                logToFile("[Browse] Catalog ready with \(mediaFiles.count) items")
+                break
+            }
+        }
 
-        if files.isEmpty {
+        if !catalogReady {
+            logToFile("[Browse] Catalog timeout — trying anyway")
+        }
+
+        // Enumerate files on background thread to avoid blocking UI
+        statusMessage = "Processant fitxers de \(device.name)..."
+        let capturedDevice = icDevice
+        let allExts = PhotoItem.allExtensions
+        let deviceId = device.id
+
+        let items: [PhotoItem] = await Task.detached {
+            guard let mediaFiles = capturedDevice.mediaFiles else { return [] }
+            var results: [PhotoItem] = []
+            for item in mediaFiles {
+                if let file = item as? ICCameraFile {
+                    let ext = (file.name ?? "").split(separator: ".").last?.lowercased() ?? ""
+                    if allExts.contains(String(ext)) {
+                        results.append(PhotoItem(cameraFile: file, deviceId: deviceId))
+                    }
+                }
+            }
+            return results
+        }.value
+
+        if items.isEmpty {
             isBrowsing = false
             statusMessage = "No s'han trobat fotos ni vídeos al dispositiu."
             return []
         }
 
-        let items = files.map { PhotoItem(cameraFile: $0, deviceId: device.id) }
         statusMessage = "\(items.count) fitxers trobats a \(device.name). Selecciona les fotos a importar."
         return items
     }
@@ -459,20 +499,32 @@ final class DeviceImportService: NSObject {
 
     // MARK: - Helpers
 
-    private func collectMediaFiles(from device: ICCameraDevice) -> [ICCameraFile] {
+    private func collectMediaFilesAsync(from device: ICCameraDevice) -> [ICCameraFile] {
         let allExts = PhotoItem.allExtensions
 
         var files: [ICCameraFile] = []
-        if let mediaFiles = device.mediaFiles {
-            for item in mediaFiles {
-                if let file = item as? ICCameraFile {
-                    let ext = (file.name ?? "").split(separator: ".").last?.lowercased() ?? ""
-                    if allExts.contains(String(ext)) {
-                        files.append(file)
-                    }
+        guard let mediaFiles = device.mediaFiles else { return files }
+
+        let total = mediaFiles.count
+        browseTotalFiles = total
+        browseProgress = 0
+        statusMessage = "Llegint fitxers... 0/\(total)"
+
+        for (index, item) in mediaFiles.enumerated() {
+            if let file = item as? ICCameraFile {
+                let ext = (file.name ?? "").split(separator: ".").last?.lowercased() ?? ""
+                if allExts.contains(String(ext)) {
+                    files.append(file)
                 }
             }
+            if index % 500 == 0 && total > 0 {
+                browseProgress = Double(index) / Double(total) * 100
+                statusMessage = "Llegint fitxers... \(index)/\(total) (\(files.count) compatibles)"
+            }
         }
+
+        browseProgress = 100
+        statusMessage = "\(files.count) fitxers trobats de \(total) al dispositiu."
         return files
     }
 }
@@ -489,6 +541,9 @@ extension DeviceImportService: ICDeviceBrowserDelegate {
 
             let type: DeviceInfo.DeviceType
             let name = device.name ?? "Unknown"
+            let serial = device.serialNumberString ?? ""
+            logToFile("[Device] Detected: '\(name)' uuid=\(device.uuidString ?? "nil") serial=\(serial) type=\(device.type.rawValue)")
+
             if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
                 type = .iPhone
             } else if device.type == .camera {
@@ -504,10 +559,12 @@ extension DeviceImportService: ICDeviceBrowserDelegate {
                 icDevice: cameraDevice
             )
 
-            if !devices.contains(where: { $0.id == info.id }) {
-                devices.append(info)
-                statusMessage = "\(devices.count) dispositiu(s) trobat(s)."
-            }
+            // Strict dedup: always rebuild list without duplicates by name
+            // Remove any existing device with same name (replace with newer)
+            devices.removeAll(where: { $0.name == info.name })
+            devices.append(info)
+            logToFile("[Device] Set: '\(name)' (total: \(devices.count))")
+            statusMessage = "\(devices.count) dispositiu(s) trobat(s)."
         }
     }
 
@@ -552,7 +609,13 @@ extension DeviceImportService: ICCameraDeviceDelegate {
         }
     }
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceivePTPEvent eventData: Data) {}
-    nonisolated func deviceDidBecomeReady(withCompleteContentCatalog device: ICCameraDevice) {}
+    nonisolated func deviceDidBecomeReady(withCompleteContentCatalog device: ICCameraDevice) {
+        logToFile("[Import] Content catalog ready for \(device.name ?? "unknown")")
+        Task { @MainActor in
+            catalogContinuation?.resume()
+            catalogContinuation = nil
+        }
+    }
     nonisolated func cameraDeviceDidEnableAccessRestriction(_ device: ICDevice) {}
     nonisolated func cameraDeviceDidRemoveAccessRestriction(_ device: ICDevice) {}
 }

@@ -99,6 +99,19 @@ final class MainViewModel {
     var photoCount: Int = 0
     var videoCount: Int = 0
 
+    /// Deduplication
+    var filterExactDuplicates: Bool = false {
+        didSet { applyFilter() }
+    }
+    var filterSimilarDuplicates: Bool = false {
+        didSet { applyFilter() }
+    }
+    var exactDuplicateCount: Int = 0
+    var similarDuplicateCount: Int = 0
+    var isScanningExact: Bool = false
+    var isScanningSimilar: Bool = false
+    private var duplicateScanTask: Task<Void, Never>?
+
     var selectedPhotosCount: Int { selectedPhotos.count }
     var totalSelectedSizeMB: Double {
         let bytes = selectedPhotos.reduce(Int64(0)) { $0 + $1.sizeBytes }
@@ -352,10 +365,9 @@ final class MainViewModel {
 
     /// Applies the photo/video filter toggles to the photos collection.
     private func applyFilter() {
-        photos.removeAll()
         selectedPhotos.removeAll()
 
-        let filtered: [PhotoItem]
+        var filtered: [PhotoItem]
         switch (filterPhotos, filterVideos) {
         case (true, true):
             filtered = allPhotos
@@ -367,6 +379,16 @@ final class MainViewModel {
             filtered = allPhotos
         }
 
+        // Apply duplicates filter
+        if filterExactDuplicates || filterSimilarDuplicates {
+            filtered = filtered.filter { item in
+                guard let groupId = item.duplicateGroupId else { return false }
+                if filterExactDuplicates && groupId.hasPrefix("md5-") { return true }
+                if filterSimilarDuplicates && (groupId.hasPrefix("phash-") || groupId.hasPrefix("exif-")) { return true }
+                return false
+            }
+        }
+
         let sorted = filtered.sorted { a, b in
             let dateA = a.dateTaken ?? .distantPast
             let dateB = b.dateTaken ?? .distantPast
@@ -375,8 +397,10 @@ final class MainViewModel {
 
         for item in sorted {
             item.isSelected = false
-            photos.append(item)
         }
+
+        // Replace in one shot (avoid empty grid flash)
+        photos = sorted
 
         // In device browse mode, restart thumbnail loading for items
         // that don't have thumbnails yet (handles reorder/filter changes)
@@ -456,6 +480,9 @@ final class MainViewModel {
 
             // Load GPS locations in background (after thumbnails start)
             loadLocations()
+
+            // Scan for duplicates in background
+            scanForDuplicates()
         } catch {
             hasError = true
             statusMessage = "Error escanejant carpeta: \(error.localizedDescription)"
@@ -530,6 +557,11 @@ final class MainViewModel {
 
     /// Updates the status message with folder and image counts.
     private func updateStatusMessage() {
+        if isDeviceBrowseMode {
+            let deviceName = deviceService.selectedDevice?.name ?? "dispositiu"
+            statusMessage = "\(photos.count) imatge(s) de \(deviceName)"
+            return
+        }
         if openFolders.isEmpty {
             statusMessage = "Obre una carpeta per veure imatges."
         } else if openFolders.count == 1 {
@@ -537,6 +569,177 @@ final class MainViewModel {
             statusMessage = "\(allPhotos.count) imatge(s) de \(folderName)"
         } else {
             statusMessage = "\(allPhotos.count) imatge(s) de \(openFolders.count) carpetes"
+        }
+    }
+
+    // MARK: - Deduplication
+
+    /// Scans all photos for duplicates using 3 strategies:
+    /// 1. MD5 hash (exact copies)
+    /// 2. Perceptual hash (visually similar)
+    /// 3. EXIF fingerprint (same camera + moment)
+    private func scanForDuplicates() {
+        duplicateScanTask?.cancel()
+        isScanningExact = true
+        isScanningSimilar = true
+        print("[Dedup] Scan started — isScanningExact=\(isScanningExact) isScanningSimilar=\(isScanningSimilar)")
+
+        // Clear previous results
+        for item in allPhotos {
+            item.duplicateGroupId = nil
+            item.md5Hash = nil
+            item.perceptualHash = nil
+            item.exifFingerprint = nil
+        }
+        exactDuplicateCount = 0
+        similarDuplicateCount = 0
+
+        let items = allPhotos.filter { $0.isLocal }
+
+        duplicateScanTask = Task {
+            // --- Pass 1: Group by file size (pre-filter) ---
+            var sizeGroups: [Int64: [PhotoItem]] = [:]
+            for item in items {
+                sizeGroups[item.sizeBytes, default: []].append(item)
+            }
+
+            // --- Pass 2: MD5 for same-size files ---
+            let sameSizeGroups = sizeGroups.values.filter { $0.count > 1 }
+
+            for group in sameSizeGroups {
+                if Task.isCancelled { return }
+                for item in group {
+                    if Task.isCancelled { return }
+                    let path = item.fullPath
+                    let hash = await Task.detached(priority: .utility) {
+                        FileService.computeMD5(at: path)
+                    }.value
+                    await MainActor.run { item.md5Hash = hash }
+                }
+            }
+
+            // Assign duplicate groups by MD5
+            var md5Groups: [String: [PhotoItem]] = [:]
+            for group in sameSizeGroups {
+                for item in group {
+                    guard let hash = item.md5Hash else { continue }
+                    md5Groups[hash, default: []].append(item)
+                }
+            }
+
+            var markedItems = Set<String>() // Track items already marked as duplicates
+            for (hash, group) in md5Groups where group.count > 1 {
+                let groupId = "md5-\(hash.prefix(12))"
+                await MainActor.run {
+                    for item in group {
+                        item.duplicateGroupId = groupId
+                        markedItems.insert(item.id)
+                    }
+                    self.exactDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
+                }
+            }
+
+            await MainActor.run {
+                self.isScanningExact = false
+                print("[Dedup] Exact done — count=\(self.exactDuplicateCount)")
+            }
+
+            // --- Pass 3: Perceptual hash for images not yet marked ---
+            let unmarkedImages = items.filter { !markedItems.contains($0.id) && $0.isImage && !$0.isVideo }
+
+            for item in unmarkedImages {
+                if Task.isCancelled { return }
+                let path = item.fullPath
+                let hash = await Task.detached(priority: .utility) {
+                    FileService.computePerceptualHash(at: path)
+                }.value
+                await MainActor.run { item.perceptualHash = hash }
+            }
+
+            // Find perceptual duplicates (O(n²) — precise, acceptable speed for typical folders)
+            let withPHash = unmarkedImages.filter { $0.perceptualHash != nil }
+            var pHashProcessed = Set<String>()
+
+            for i in 0..<withPHash.count {
+                if Task.isCancelled { return }
+                let itemA = withPHash[i]
+                guard !pHashProcessed.contains(itemA.id),
+                      let hashA = itemA.perceptualHash else { continue }
+
+                var group: [PhotoItem] = [itemA]
+
+                for j in (i+1)..<withPHash.count {
+                    let itemB = withPHash[j]
+                    guard !pHashProcessed.contains(itemB.id),
+                          let hashB = itemB.perceptualHash else { continue }
+
+                    if FileService.hammingDistance(hashA, hashB) <= 5 {
+                        group.append(itemB)
+                    }
+                }
+
+                if group.count > 1 {
+                    let groupId = "phash-\(String(hashA, radix: 16).prefix(12))"
+                    await MainActor.run {
+                        for item in group {
+                            item.duplicateGroupId = groupId
+                            markedItems.insert(item.id)
+                            pHashProcessed.insert(item.id)
+                        }
+                    }
+                }
+
+                // Yield every 50 items to keep UI responsive and update counter
+                if i % 50 == 0 {
+                    await MainActor.run {
+                        self.similarDuplicateCount = self.allPhotos.filter {
+                            $0.duplicateGroupId?.hasPrefix("phash-") == true || $0.duplicateGroupId?.hasPrefix("exif-") == true
+                        }.count
+                    }
+                    await Task.yield()
+                }
+            }
+
+            // --- Pass 4: EXIF fingerprint for remaining unmarked images ---
+            let stillUnmarked = items.filter { !markedItems.contains($0.id) && $0.isImage && !$0.isVideo }
+
+            for item in stillUnmarked {
+                if Task.isCancelled { return }
+                let path = item.fullPath
+                let fp = await Task.detached(priority: .utility) {
+                    FileService.computeExifFingerprint(at: path)
+                }.value
+                await MainActor.run { item.exifFingerprint = fp }
+            }
+
+            // Group by EXIF fingerprint
+            var exifGroups: [String: [PhotoItem]] = [:]
+            for item in stillUnmarked {
+                guard let fp = item.exifFingerprint else { continue }
+                exifGroups[fp, default: []].append(item)
+            }
+
+            for (fp, group) in exifGroups where group.count > 1 {
+                let groupId = "exif-\(fp.prefix(12))"
+                await MainActor.run {
+                    for item in group {
+                        item.duplicateGroupId = groupId
+                    }
+                }
+            }
+
+            // Update counts and refresh filter
+            await MainActor.run {
+                self.exactDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
+                self.similarDuplicateCount = self.allPhotos.filter {
+                    $0.duplicateGroupId?.hasPrefix("phash-") == true || $0.duplicateGroupId?.hasPrefix("exif-") == true
+                }.count
+                self.isScanningSimilar = false
+                print("[Dedup] Similar done — count=\(self.similarDuplicateCount)")
+                if self.filterExactDuplicates || self.filterSimilarDuplicates {
+                    self.applyFilter()
+                }
+            }
         }
     }
 
@@ -946,8 +1149,16 @@ final class MainViewModel {
         item.isSelected.toggle()
         if item.isSelected {
             selectedPhotos.insert(item)
+            // Show path in status bar (useful for multi-folder duplicate identification)
+            if item.isLocal {
+                let dir = (item.fullPath as NSString).deletingLastPathComponent
+                statusMessage = "\(item.fileName) — \(dir)"
+            } else {
+                statusMessage = item.fileName
+            }
         } else {
             selectedPhotos.remove(item)
+            updateStatusMessage()
         }
     }
 
@@ -1229,18 +1440,21 @@ final class MainViewModel {
     // MARK: - Device Browse
 
     func browseDevice() async {
+        isLoading = true
         do {
             let items = try await deviceService.browseDevice()
-            guard !items.isEmpty else { return }
+            guard !items.isEmpty else { isLoading = false; return }
 
             // Save current local state
             savedLocalPhotos = allPhotos
             savedOpenFolders = openFolders
             savedCurrentFolder = currentFolderPath
 
-            // Enter browse mode (keep import panel open for status)
+            // Enter browse mode
             isDeviceBrowseMode = true
             closeViewer()
+            openFolders.removeAll()
+            currentFolderPath = nil
 
             // Set device photos in the grid (sorted by date)
             allPhotos = items.sorted { a, b in
@@ -1257,22 +1471,146 @@ final class MainViewModel {
                 self?.exitDeviceBrowseMode()
             }
 
-            // Load thumbnails from device in background (no location in browse — too slow)
+            isLoading = false
+
+            // Load thumbnails from device in background, then scan for duplicates
             loadDeviceThumbnails()
+            scanDeviceDuplicates()
         } catch {
+            isLoading = false
             deviceService.statusMessage = "Error de navegació: \(error.localizedDescription)"
         }
     }
 
     private func loadDeviceThumbnails() {
         thumbnailTask?.cancel()
-        let photosCopy = photos
+        let visiblePhotos = photos  // Priority: load filtered/visible items first
+        let remainingPhotos = allPhotos.filter { item in !visiblePhotos.contains(item) }
         thumbnailTask = Task {
-            for photo in photosCopy {
+            // First pass: visible photos (what user sees now)
+            for photo in visiblePhotos {
                 guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
                 guard photo.thumbnail == nil else { continue }
                 if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
                     photo.thumbnail = thumb
+                }
+            }
+            // Second pass: remaining photos (for future filtering)
+            for photo in remainingPhotos {
+                guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
+                guard photo.thumbnail == nil else { continue }
+                if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
+                    photo.thumbnail = thumb
+                }
+            }
+        }
+    }
+
+    /// Scans device photos for duplicates using perceptual hash on thumbnails.
+    /// Waits for thumbnails to load, then computes hashes.
+    private func scanDeviceDuplicates() {
+        duplicateScanTask?.cancel()
+        isScanningExact = true
+        isScanningSimilar = true
+        exactDuplicateCount = 0
+        similarDuplicateCount = 0
+
+        let items = photos
+
+        duplicateScanTask = Task {
+            // Wait for thumbnails to be loaded (poll every 2s, max 60s)
+            for _ in 0..<30 {
+                if Task.isCancelled { return }
+                let loaded = items.filter { $0.thumbnail != nil }.count
+                if loaded >= items.count / 2 { break } // at least half loaded
+                try? await Task.sleep(for: .seconds(2))
+            }
+
+            // Compute perceptual hash from thumbnails
+            for item in items {
+                if Task.isCancelled { return }
+                guard let thumb = item.thumbnail else { continue }
+                let hash = FileService.computePerceptualHashFromImage(thumb)
+                await MainActor.run { item.perceptualHash = hash }
+            }
+
+            // Also group by file size for exact matches (same sizeBytes = likely same file)
+            var sizeGroups: [Int64: [PhotoItem]] = [:]
+            for item in items {
+                sizeGroups[item.sizeBytes, default: []].append(item)
+            }
+
+            var markedItems = Set<String>()
+
+            // Exact duplicates by size (good proxy on device where we can't compute MD5)
+            for (_, group) in sizeGroups where group.count > 1 {
+                // Also check perceptual hash to confirm
+                let withHash = group.filter { $0.perceptualHash != nil }
+                guard withHash.count > 1 else { continue }
+
+                for i in 0..<withHash.count {
+                    guard let hashA = withHash[i].perceptualHash else { continue }
+                    for j in (i+1)..<withHash.count {
+                        guard let hashB = withHash[j].perceptualHash else { continue }
+                        if FileService.hammingDistance(hashA, hashB) == 0 {
+                            let groupId = "md5-size\(withHash[i].sizeBytes)"
+                            await MainActor.run {
+                                withHash[i].duplicateGroupId = groupId
+                                withHash[j].duplicateGroupId = groupId
+                                markedItems.insert(withHash[i].id)
+                                markedItems.insert(withHash[j].id)
+                            }
+                        }
+                    }
+                }
+            }
+
+            await MainActor.run {
+                self.exactDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
+                self.isScanningExact = false
+            }
+
+            // Similar duplicates (Hamming distance ≤ 5)
+            let withPHash = items.filter { $0.perceptualHash != nil && !markedItems.contains($0.id) }
+            var pHashProcessed = Set<String>()
+
+            for i in 0..<withPHash.count {
+                if Task.isCancelled { return }
+                let itemA = withPHash[i]
+                guard !pHashProcessed.contains(itemA.id),
+                      let hashA = itemA.perceptualHash else { continue }
+
+                var group: [PhotoItem] = [itemA]
+
+                for j in (i+1)..<withPHash.count {
+                    let itemB = withPHash[j]
+                    guard !pHashProcessed.contains(itemB.id),
+                          let hashB = itemB.perceptualHash else { continue }
+
+                    if FileService.hammingDistance(hashA, hashB) <= 5 {
+                        group.append(itemB)
+                    }
+                }
+
+                if group.count > 1 {
+                    let groupId = "phash-\(String(hashA, radix: 16).prefix(12))"
+                    await MainActor.run {
+                        for item in group {
+                            item.duplicateGroupId = groupId
+                            pHashProcessed.insert(item.id)
+                        }
+                    }
+                }
+            }
+
+            // Update counts
+            await MainActor.run {
+                self.exactDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
+                self.similarDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("phash-") == true }.count
+                self.isScanningExact = false
+                self.isScanningSimilar = false
+                if self.filterExactDuplicates || self.filterSimilarDuplicates {
+                    self.applyFilter()
                 }
             }
         }
@@ -1375,8 +1713,20 @@ final class MainViewModel {
 
         isDeviceBrowseMode = false
 
+        // Cancel any device duplicate scan
+        duplicateScanTask?.cancel()
+        isScanningExact = false
+        isScanningSimilar = false
+
         photoCount = allPhotos.filter { !$0.isVideo }.count
         videoCount = allPhotos.filter { $0.isVideo }.count
+
+        // Recalculate duplicate counts from restored local photos
+        exactDuplicateCount = allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
+        similarDuplicateCount = allPhotos.filter {
+            $0.duplicateGroupId?.hasPrefix("phash-") == true || $0.duplicateGroupId?.hasPrefix("exif-") == true
+        }.count
+
         applyFilter()
         updateStatusMessage()
     }

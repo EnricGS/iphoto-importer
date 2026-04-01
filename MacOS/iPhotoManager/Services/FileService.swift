@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import ImageIO
 import AVFoundation
+import CryptoKit
 import UniformTypeIdentifiers
 
 /// Service for local file operations: scanning folders, generating thumbnails,
@@ -338,6 +339,151 @@ actor FileService {
              | Int32(bytes[offset + 1]) << 16
              | Int32(bytes[offset + 2]) << 8
              | Int32(bytes[offset + 3])
+    }
+
+    // MARK: - Deduplication Hashing
+
+    /// Computes MD5 hash of a file (exact duplicate detection).
+    /// Reads in 64KB chunks to handle large files efficiently.
+    nonisolated static func computeMD5(at path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { handle.closeFile() }
+
+        var hasher = Insecure.MD5()
+        let chunkSize = 65536
+
+        while autoreleasepool(invoking: {
+            let data = handle.readData(ofLength: chunkSize)
+            guard !data.isEmpty else { return false }
+            hasher.update(data: data)
+            return true
+        }) {}
+
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Computes a perceptual hash (average hash) of an image.
+    /// Resizes to 8x8 grayscale, compares each pixel to the average.
+    /// Returns a 64-bit hash. Similar images have small Hamming distance.
+    nonisolated static func computePerceptualHash(at path: String) -> UInt64? {
+        let url = URL(fileURLWithPath: path)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+
+        // Generate tiny 8x8 thumbnail
+        let options: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: 8,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        // Draw to 8x8 grayscale bitmap
+        let size = 8
+        guard let context = CGContext(
+            data: nil,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: size,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+
+        guard let data = context.data else { return nil }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: size * size)
+
+        // Compute average brightness
+        var total: Int = 0
+        for i in 0..<(size * size) {
+            total += Int(pixels[i])
+        }
+        let average = total / (size * size)
+
+        // Build 64-bit hash: each bit = pixel > average
+        var hash: UInt64 = 0
+        for i in 0..<(size * size) {
+            if pixels[i] > UInt8(average) {
+                hash |= (1 << i)
+            }
+        }
+
+        return hash
+    }
+
+    /// Computes a perceptual hash from an NSImage (for device thumbnails).
+    nonisolated static func computePerceptualHashFromImage(_ image: NSImage) -> UInt64? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+
+        let size = 8
+        guard let context = CGContext(
+            data: nil,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: size,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+
+        guard let data = context.data else { return nil }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: size * size)
+
+        var total: Int = 0
+        for i in 0..<(size * size) {
+            total += Int(pixels[i])
+        }
+        let average = total / (size * size)
+
+        var hash: UInt64 = 0
+        for i in 0..<(size * size) {
+            if pixels[i] > UInt8(average) {
+                hash |= (1 << i)
+            }
+        }
+
+        return hash
+    }
+
+    /// Computes Hamming distance between two perceptual hashes.
+    /// Lower distance = more similar (0 = identical, ≤5 = likely duplicate).
+    nonisolated static func hammingDistance(_ a: UInt64, _ b: UInt64) -> Int {
+        return (a ^ b).nonzeroBitCount
+    }
+
+    /// Extracts an EXIF-based fingerprint: camera + datetime + dimensions.
+    /// Matches photos taken at the same moment by the same camera.
+    nonisolated static func computeExifFingerprint(at path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else {
+            return nil
+        }
+
+        let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        let tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
+
+        let dateTime = exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String ?? ""
+        let make = tiff?[kCGImagePropertyTIFFMake as String] as? String ?? ""
+        let model = tiff?[kCGImagePropertyTIFFModel as String] as? String ?? ""
+        let width = props[kCGImagePropertyPixelWidth as String] as? Int ?? 0
+        let height = props[kCGImagePropertyPixelHeight as String] as? Int ?? 0
+
+        // Need at least datetime to be useful
+        guard !dateTime.isEmpty else { return nil }
+
+        let raw = "\(dateTime)|\(make)|\(model)|\(width)x\(height)"
+        let digest = SHA256.hash(data: Data(raw.utf8))
+        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - File Operations

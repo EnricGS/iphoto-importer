@@ -17,13 +17,13 @@ struct ThumbnailGridView: View {
                 deviceBrowseBanner
             }
 
-            // Grid controls (filter toggles, counter, slider)
-            if !viewModel.photos.isEmpty {
+            // Grid controls (filter toggles, counter, slider) — show when any photos loaded
+            if viewModel.photoCount + viewModel.videoCount > 0 {
                 gridControls
             }
 
             // Thumbnail grid
-            if viewModel.photos.isEmpty && !viewModel.isLoading {
+            if viewModel.photos.isEmpty && !viewModel.isLoading && viewModel.photoCount + viewModel.videoCount == 0 {
                 emptyState
             } else if viewModel.isTimelineMode {
                 timelineContent
@@ -231,6 +231,71 @@ struct ThumbnailGridView: View {
                 Slider(value: $viewModel.thumbnailSize, in: 80...400, step: 10)
                     .frame(width: 100)
                     .tint(Color.accent)
+            }
+
+            // Duplicates filters (independent pills, like photo/video)
+            if viewModel.photoCount + viewModel.videoCount > 0 {
+                // Exact duplicates pill
+                Button {
+                    viewModel.filterExactDuplicates.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("=")
+                            .font(.system(size: 13, weight: .bold))
+                        if viewModel.isScanningExact {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.7)
+                        } else {
+                            Text("\(viewModel.exactDuplicateCount)")
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(viewModel.filterExactDuplicates ? Color.accentSubtle : Color.bgElevated)
+                    .foregroundStyle(viewModel.filterExactDuplicates ? Color.accent : Color.textDim)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(viewModel.filterExactDuplicates ? Color.accentDim : Color.clear, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Duplicats exactes")
+
+                // Similar duplicates pill
+                Button {
+                    viewModel.filterSimilarDuplicates.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("≈")
+                            .font(.system(size: 13, weight: .bold))
+                        if viewModel.isScanningSimilar {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.7)
+                            if viewModel.similarDuplicateCount > 0 {
+                                Text("\(viewModel.similarDuplicateCount)")
+                                    .font(.system(size: 11))
+                            }
+                        } else {
+                            Text("\(viewModel.similarDuplicateCount)")
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(viewModel.filterSimilarDuplicates ? Color.accentSubtle : Color.bgElevated)
+                    .foregroundStyle(viewModel.filterSimilarDuplicates ? Color.accent : Color.textDim)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(viewModel.filterSimilarDuplicates ? Color.accentDim : Color.clear, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Duplicats similars")
             }
 
             Spacer()
