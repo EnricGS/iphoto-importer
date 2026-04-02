@@ -4,6 +4,18 @@ import SwiftUI
 import Combine
 import CoreLocation
 
+private func logDebug(_ msg: String) {
+    let path = "/tmp/iphoto_debug.log"
+    let line = "\(Date()): \(msg)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(line.data(using: .utf8)!)
+        handle.closeFile()
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
 /// Main ViewModel for the application. Manages the image viewer,
 /// thumbnail grid, and file management operations.
 @MainActor
@@ -397,6 +409,30 @@ final class MainViewModel {
 
         for item in sorted {
             item.isSelected = false
+        }
+
+        // In device browse mode: propagate thumbnails within exact duplicate groups
+        // so items without loaded thumbnails show the same image as their sibling
+        if isDeviceBrowseMode && filterExactDuplicates {
+            var groups: [String: [PhotoItem]] = [:]
+            for item in sorted {
+                guard let gid = item.duplicateGroupId, gid.hasPrefix("md5-") else { continue }
+                groups[gid, default: []].append(item)
+            }
+            logDebug("[DupFilter] \(sorted.count) items, \(groups.count) groups")
+            for (gid, group) in groups {
+                let withThumb = group.filter { $0.thumbnail != nil }.count
+                let withoutThumb = group.filter { $0.thumbnail == nil }.count
+                logDebug("[DupFilter] group=\(gid) total=\(group.count) withThumb=\(withThumb) withoutThumb=\(withoutThumb)")
+                if let donor = group.first(where: { $0.thumbnail != nil }) {
+                    for item in group where item.thumbnail == nil {
+                        item.thumbnail = donor.thumbnail
+                        logDebug("[DupFilter] Propagated thumb to \(item.fileName)")
+                    }
+                } else {
+                    logDebug("[DupFilter] NO DONOR in group \(gid)!")
+                }
+            }
         }
 
         // Replace in one shot (avoid empty grid flash)
@@ -1483,11 +1519,13 @@ final class MainViewModel {
     }
 
     private func loadDeviceThumbnails() {
+        // Cancel any in-flight loading to prioritize current visible photos
         thumbnailTask?.cancel()
-        let visiblePhotos = photos  // Priority: load filtered/visible items first
-        let remainingPhotos = allPhotos.filter { item in !visiblePhotos.contains(item) }
+
+        let visiblePhotos = photos  // Priority: filtered/visible items first
+        let allItems = allPhotos
         thumbnailTask = Task {
-            // First pass: visible photos (what user sees now)
+            // First pass: visible/filtered photos (what user sees now)
             for photo in visiblePhotos {
                 guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
                 guard photo.thumbnail == nil else { continue }
@@ -1495,14 +1533,15 @@ final class MainViewModel {
                     photo.thumbnail = thumb
                 }
             }
-            // Second pass: remaining photos (for future filtering)
-            for photo in remainingPhotos {
+            // Second pass: ALL remaining photos (for future filtering/scanning)
+            for photo in allItems {
                 guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
                 guard photo.thumbnail == nil else { continue }
                 if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
                     photo.thumbnail = thumb
                 }
             }
+            self.thumbnailTask = nil
         }
     }
 
@@ -1515,14 +1554,14 @@ final class MainViewModel {
         exactDuplicateCount = 0
         similarDuplicateCount = 0
 
-        let items = photos
+        let items = allPhotos  // Scan ALL photos, not just filtered
 
         duplicateScanTask = Task {
             // Wait for thumbnails to be loaded (poll every 2s, max 60s)
             for _ in 0..<30 {
                 if Task.isCancelled { return }
                 let loaded = items.filter { $0.thumbnail != nil }.count
-                if loaded >= items.count / 2 { break } // at least half loaded
+                if loaded >= items.count / 3 { break } // at least a third loaded
                 try? await Task.sleep(for: .seconds(2))
             }
 
@@ -1565,7 +1604,20 @@ final class MainViewModel {
                 }
             }
 
+            // Propagate thumbnails within exact duplicate groups:
+            // if one item has a thumbnail and its duplicate doesn't, share it
             await MainActor.run {
+                var exactGroups: [String: [PhotoItem]] = [:]
+                for item in items where item.duplicateGroupId?.hasPrefix("md5-") == true {
+                    exactGroups[item.duplicateGroupId!, default: []].append(item)
+                }
+                for (_, group) in exactGroups {
+                    if let donor = group.first(where: { $0.thumbnail != nil }) {
+                        for item in group where item.thumbnail == nil {
+                            item.thumbnail = donor.thumbnail
+                        }
+                    }
+                }
                 self.exactDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
                 self.isScanningExact = false
             }
@@ -1699,7 +1751,7 @@ final class MainViewModel {
         deviceService.closeSession()
         deviceService.onDeviceDisconnected = nil
         deviceService.selectedDevice = nil
-        deviceService.devices = []
+        deviceService.clearDevices()
         deviceService.statusMessage = "Connecta un iPhone o càmera per USB."
         isImportPanelOpen = false
 

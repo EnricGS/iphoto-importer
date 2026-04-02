@@ -8,9 +8,29 @@
 		<data>
 		N1kLwbBG86grEXopdQVbBdyo4Z8=
 		</data>
-		<key>Resources/iPhotoViewer.entitlements</key>
+		<key>Resources/iPhotoManager.entitlements</key>
 		<data>
 		NqVXM3pWWmDCyuq1SvH44BarjoA=
+		</data>
+		<key>Resources/iPhotoManager.icns</key>
+		<data>
+		kK8KAayadBPQ1jWy7yaqYZN1SV0=
+		</data>
+		<key>Resources/iPhotoManager_iPhotoManager.bundle/AppIcon.icns</key>
+		<data>
+		N1kLwbBG86grEXopdQVbBdyo4Z8=
+		</data>
+		<key>Resources/iPhotoManager_iPhotoManager.bundle/iPhotoManager.icns</key>
+		<data>
+		kK8KAayadBPQ1jWy7yaqYZN1SV0=
+		</data>
+		<key>Resources/iPhotoManager_iPhotoManager.bundle/placeholder.txt</key>
+		<data>
+		/SthLf+3ex9bWN61otkzUqRM+AI=
+		</data>
+		<key>Resources/placeholder.txt</key>
+		<data>
+		/SthLf+3ex9bWN61otkzUqRM+AI=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -22,11 +42,46 @@
 			o+yroigwOprbSMYjSY8G8WOvTtUTBq9XIX6vDSse0no=
 			</data>
 		</dict>
-		<key>Resources/iPhotoViewer.entitlements</key>
+		<key>Resources/iPhotoManager.entitlements</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			7VY7wxatRH3RrqpBtmvAro90F/1QcuTuu8c6PFXF4fg=
+			</data>
+		</dict>
+		<key>Resources/iPhotoManager.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			kIz9pAtbt/ZJ0CYgCkIyqnakXwWG0Jztz7m+rM0A2uY=
+			</data>
+		</dict>
+		<key>Resources/iPhotoManager_iPhotoManager.bundle/AppIcon.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			o+yroigwOprbSMYjSY8G8WOvTtUTBq9XIX6vDSse0no=
+			</data>
+		</dict>
+		<key>Resources/iPhotoManager_iPhotoManager.bundle/iPhotoManager.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			kIz9pAtbt/ZJ0CYgCkIyqnakXwWG0Jztz7m+rM0A2uY=
+			</data>
+		</dict>
+		<key>Resources/iPhotoManager_iPhotoManager.bundle/placeholder.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			LieqCvvbd55vwlsZQqcWRHsPMPvJpotskuFNFDuBKyg=
+			</data>
+		</dict>
+		<key>Resources/placeholder.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			LieqCvvbd55vwlsZQqcWRHsPMPvJpotskuFNFDuBKyg=
 			</data>
 		</dict>
 	</dict>

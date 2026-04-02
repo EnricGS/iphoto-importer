@@ -137,7 +137,9 @@ final class PhotoItem: Identifiable, Hashable {
     /// Convenience init for device items.
     init(cameraFile: ICCameraFile, deviceId: String) {
         let name = cameraFile.name ?? "unknown"
-        let path = "device://\(deviceId)/\(name)"
+        // Use parent folder path to ensure unique ID for files with same name in different folders
+        let folder = cameraFile.parentFolder?.name ?? ""
+        let path = "device://\(deviceId)/\(folder)/\(name)"
         self.id = path
         self.fullPath = path
         self.fileName = name

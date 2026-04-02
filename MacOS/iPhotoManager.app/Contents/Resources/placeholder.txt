@@ -1,0 +1,2 @@
+This directory is for app resources (icons, assets, etc.).
+Add an Assets.xcassets catalog here when building with Xcode.

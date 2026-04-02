@@ -13,12 +13,13 @@ struct iPhotoManagerApp: App {
     }
 
     var body: some Scene {
+        let screenSize = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1400, height: 900)
         WindowGroup("iPhoto Manager") {
             ContentView()
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 800, minHeight: 500)
         }
         .windowStyle(.titleBar)
-        .defaultSize(width: 1400, height: 900)
+        .defaultSize(width: screenSize.width * 0.5, height: screenSize.height * 0.5)
         .commands {
             // File menu
             CommandGroup(replacing: .newItem) {

@@ -99,3 +99,50 @@ L'objectiu és publicar iPhotoManager a l'App Store, a més de la distribució d
 - Distribuir dues versions: App Store (sense import iPhone) i directa (amb import iPhone).
 - Demanar un entitlement especial a Apple.
 - Trobar una alternativa a ImageCaptureCore compatible amb sandbox.
+
+---
+
+## 2026-04-02 — Dedup dispositius, mida finestra, build.sh
+
+### Deduplicació dispositius iPhone (bug #5)
+
+**Problema:** L'iPhone apareixia duplicat al modal d'importació (un cop com a "Camera", un cop com a "iPhone") per race condition als callbacks `didAdd` de `ICDeviceBrowser`.
+
+**Solució:** `devices` passa de ser un array a ser una propietat computada basada en un `Dictionary<String, DeviceInfo>` (`devicesByKey`) keyed per `serialNumberString` (primari) o `name+usbProductID+usbVendorID` (fallback). Un sol punt d'entrada `addDevice()` centralitza la inserció. Duplicats impossibles per construcció.
+
+**Important — binari .app vs swift build:** El `.app` bundle del Dock conté un binari separat del que genera `swift build`. Cal executar `./build.sh` per compilar, copiar al `.app`, i re-signar amb entitlements USB. Sense re-signar, ImageCaptureCore no funciona.
+
+### Mida de finestra
+
+**Problema:** Amb `defaultSize` al 50% de pantalla (`screenSize.width * 0.5, screenSize.height * 0.5`), la toolbar no mostra les icones. En ampliar manualment la finestra, les icones apareixen.
+
+**Causa:** La ToolbarView usa un `HStack` amb molts elements (icona app, títol, botons scan/folder/destí/iPhone, Spacer) que no cabia en el 50% d'ample de pantalla. Els elements es retallaven sense warning visual.
+
+**Pendent:** Cal fer la toolbar responsive — usar `ScrollView(.horizontal)` o col·lapsar icones a un menú quan l'ample és insuficient. Alternativament, augmentar el `defaultSize` mínim.
+
+### build.sh
+
+Nou script `build.sh` que automatitza: `swift build -c release` → copia binari al `.app` → copia resource bundle → `codesign` amb Developer ID Application i entitlements USB.
+
+**Important — .app bundle vs swift build:** El Dock i Finder executen el `.app` bundle, NO el binari de `.build/debug/`. Sempre cal executar `./build.sh` després de fer canvis per actualitzar el `.app`. El script compila en release, copia binari + resource bundle, i re-signa amb Developer ID. Sense Developer ID, macOS demana permís de volum extraïble cada cop.
+
+### Fix placeholders negres en duplicats iPhone (bug #6)
+
+**Problema:** Al filtrar duplicats al browser iPhone, 2 de 4 fotos no apareixien (placeholder negre).
+
+**Causa real:** `PhotoItem.init(cameraFile:deviceId:)` generava l'ID amb `device://\(deviceId)/\(name)`. Fitxers duplicats amb el **mateix nom** (a carpetes diferents de l'iPhone, ex: `DCIM/100APPLE/IMG_1234.JPG` i `DCIM/101APPLE/IMG_1234.JPG`) tenien el **mateix ID**. SwiftUI's `ForEach` descarta items amb IDs duplicats — només renderitzava un dels dos.
+
+**Solució:** Afegir `cameraFile.parentFolder?.name` a l'ID: `device://\(deviceId)/\(folder)/\(name)`.
+
+**Millores addicionals:**
+- `scanDeviceDuplicates()` ara escaneja `allPhotos` (no `photos` filtrat)
+- `loadDeviceThumbnails()` prioritza fotos visibles/filtrades, després carrega la resta
+- Propagació de thumbnails dins grups de duplicats exactes (per si un germà no té thumbnail)
+
+### Aprenentatges clau de la sessió
+
+1. **`@Observable` + propietat computada:** Usar `var devices: [DeviceInfo] { Array(dict.values) }` com a propietat computada NO funcionava amb `@Observable` — SwiftUI no detectava els canvis correctament al diccionari intern. Solució: usar stored array `var devices` + `Set<String>` de claus per dedup.
+
+2. **ICDeviceBrowser callbacks:** El `didAdd` es crida un sol cop per l'iPhone (type=257 = camera+local). El segon "dispositiu" apareixia transitòriament durant el processament però desapareixia un cop completat.
+
+3. **logToFile path:** `NSHomeDirectory()` funciona dins l'app per escriure a `~/iphoto_import.log`. `/tmp/iphoto_debug.log` també funciona. El problema de "no trobar el log" era perquè s'executava el binari antic del `.app` en lloc del compilat amb `swift build`.

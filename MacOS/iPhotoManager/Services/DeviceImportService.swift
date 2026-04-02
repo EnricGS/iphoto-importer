@@ -6,7 +6,7 @@ import os.log
 private let logger = Logger(subsystem: "com.iphotomanager", category: "import")
 
 private func logToFile(_ msg: String) {
-    let path = NSHomeDirectory() + "/iphoto_import.log"
+    let path = "/tmp/iphoto_debug.log"
     let line = "\(Date()): \(msg)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
         handle.seekToEndOfFile()
@@ -25,6 +25,8 @@ final class DeviceImportService: NSObject {
 
     // MARK: - State
 
+    /// Dedup keys of known devices to prevent duplicates.
+    private var knownDeviceKeys: Set<String> = []
     var devices: [DeviceInfo] = []
     var selectedDevice: DeviceInfo?
     var isScanning: Bool = false
@@ -69,11 +71,13 @@ final class DeviceImportService: NSObject {
     private var metadataContinuations: [String: CheckedContinuation<[AnyHashable: Any]?, Never>] = [:]
     private var catalogContinuation: CheckedContinuation<Void, Never>?
 
+
     // MARK: - Device Detection
 
     func detectDevices() async {
         isScanning = true
         statusMessage = "Cercant dispositius..."
+        knownDeviceKeys = []
         devices = []
         selectedDevice = nil
 
@@ -88,37 +92,15 @@ final class DeviceImportService: NSObject {
             if let knownDevices = browser?.devices {
                 for device in knownDevices {
                     if let cameraDevice = device as? ICCameraDevice {
-                        let name = device.name ?? "Unknown"
-                        let type: DeviceInfo.DeviceType
-                        if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
-                            type = .iPhone
-                        } else if device.type == .camera {
-                            type = .camera
-                        } else {
-                            type = .unknown
-                        }
-                        let info = DeviceInfo(
-                            id: device.uuidString ?? UUID().uuidString,
-                            name: name,
-                            type: type,
-                            icDevice: cameraDevice
-                        )
-                        cameraDevice.delegate = self
-                        if !devices.contains(where: { $0.id == info.id }) {
-                            devices.append(info)
-                        }
+                        addDevice(cameraDevice)
                     }
                 }
             }
-            // Short wait in case new devices appear
+            // Short wait in case new devices appear via didAdd
             try? await Task.sleep(for: .seconds(1))
         }
 
         isScanning = false
-
-        // Final dedup by name (race conditions from didAdd callbacks during sleep)
-        var seenNames = Set<String>()
-        devices = devices.filter { seenNames.insert($0.name).inserted }
 
         if devices.isEmpty {
             statusMessage = "No s'han trobat dispositius. Assegura't que l'iPhone està desbloquejat i connectat per USB."
@@ -535,42 +517,62 @@ extension DeviceImportService: ICDeviceBrowserDelegate {
     nonisolated func deviceBrowser(_ browser: ICDeviceBrowser, didAdd device: ICDevice, moreComing: Bool) {
         Task { @MainActor in
             guard let cameraDevice = device as? ICCameraDevice else { return }
-
-            // Set delegate early so session events are captured
-            cameraDevice.delegate = self
-
-            let type: DeviceInfo.DeviceType
-            let name = device.name ?? "Unknown"
-            let serial = device.serialNumberString ?? ""
-            logToFile("[Device] Detected: '\(name)' uuid=\(device.uuidString ?? "nil") serial=\(serial) type=\(device.type.rawValue)")
-
-            if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
-                type = .iPhone
-            } else if device.type == .camera {
-                type = .camera
-            } else {
-                type = .unknown
-            }
-
-            let info = DeviceInfo(
-                id: device.uuidString ?? UUID().uuidString,
-                name: name,
-                type: type,
-                icDevice: cameraDevice
-            )
-
-            // Strict dedup: always rebuild list without duplicates by name
-            // Remove any existing device with same name (replace with newer)
-            devices.removeAll(where: { $0.name == info.name })
-            devices.append(info)
-            logToFile("[Device] Set: '\(name)' (total: \(devices.count))")
-            statusMessage = "\(devices.count) dispositiu(s) trobat(s)."
+            addDevice(cameraDevice)
         }
+    }
+
+    /// Returns a stable deduplication key for a device: serial (primary) or name+USB IDs (fallback).
+    private nonisolated func deviceDeduplicationKey(for device: ICDevice) -> String {
+        let serial = device.serialNumberString ?? ""
+        if !serial.isEmpty { return serial }
+        return "\(device.name ?? "")-\(device.usbProductID)-\(device.usbVendorID)"
+    }
+
+    /// Clears all known devices.
+    func clearDevices() {
+        knownDeviceKeys = []
+        devices = []
+    }
+
+    /// Single entry point for adding a device. Uses dictionary keyed by serial — duplicates impossible.
+    private func addDevice(_ cameraDevice: ICCameraDevice) {
+        let device = cameraDevice as ICDevice
+        let key = deviceDeduplicationKey(for: device)
+        let serial = device.serialNumberString ?? "nil"
+        let name = device.name ?? "Unknown"
+        logToFile("[addDevice] name='\(name)' serial='\(serial)' uuid=\(device.uuidString ?? "nil") type=\(device.type.rawValue) usbProd=\(device.usbProductID) usbVend=\(device.usbVendorID) KEY='\(key)' known_keys=\(knownDeviceKeys)")
+
+        // Already known — skip
+        guard knownDeviceKeys.insert(key).inserted else {
+            logToFile("[addDevice] SKIPPED duplicate key='\(key)'")
+            return
+        }
+
+        cameraDevice.delegate = self
+        let type: DeviceInfo.DeviceType
+        if name.lowercased().contains("iphone") || name.lowercased().contains("ipad") {
+            type = .iPhone
+        } else if device.type == .camera {
+            type = .camera
+        } else {
+            type = .unknown
+        }
+
+        let info = DeviceInfo(
+            id: device.uuidString ?? UUID().uuidString,
+            name: name,
+            type: type,
+            icDevice: cameraDevice
+        )
+        devices.append(info)
+        statusMessage = "\(devices.count) dispositiu(s) trobat(s)."
     }
 
     nonisolated func deviceBrowser(_ browser: ICDeviceBrowser, didRemove device: ICDevice, moreGoing: Bool) {
         Task { @MainActor in
-            devices.removeAll { $0.id == (device.uuidString ?? "") }
+            let key = deviceDeduplicationKey(for: device)
+            knownDeviceKeys.remove(key)
+            devices.removeAll { deviceDeduplicationKey(for: $0.icDevice as ICDevice) == key }
         }
     }
 }
@@ -638,9 +640,11 @@ extension DeviceImportService: ICDeviceDelegate {
     nonisolated func device(_ device: ICDevice, didCloseSessionWithError error: (any Error)?) {}
     nonisolated func didRemove(_ device: ICDevice) {
         Task { @MainActor in
-            let removedId = device.uuidString ?? ""
-            let wasBrowsing = isBrowsing && selectedDevice?.id == removedId
-            devices.removeAll { $0.id == removedId }
+            let key = deviceDeduplicationKey(for: device)
+            let removedDevice = devices.first { deviceDeduplicationKey(for: $0.icDevice as ICDevice) == key }
+            let wasBrowsing = isBrowsing && selectedDevice?.id == removedDevice?.id
+            knownDeviceKeys.remove(key)
+            devices.removeAll { deviceDeduplicationKey(for: $0.icDevice as ICDevice) == key }
             if wasBrowsing {
                 isBrowsing = false
                 onDeviceDisconnected?()
