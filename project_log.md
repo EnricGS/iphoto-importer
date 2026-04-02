@@ -139,6 +139,16 @@ Nou script `build.sh` que automatitza: `swift build -c release` → copia binari
 - `loadDeviceThumbnails()` prioritza fotos visibles/filtrades, després carrega la resta
 - Propagació de thumbnails dins grups de duplicats exactes (per si un germà no té thumbnail)
 
+### Build release trenca thumbnails locals
+
+**Problema:** Compilant amb `swift build -c release`, els thumbnails de carpetes locals no es carreguen (totes les cel·les mostren placeholder). En debug funciona correctament.
+
+**Causa probable:** Optimització del compilador en release trenca la interacció entre `@Observable` (MainViewModel/PhotoItem) i l'`actor ThumbnailCacheService`. L'actor isolation i les optimitzacions de concurrency poden causar race conditions que en debug no es manifesten.
+
+**Solució temporal:** build.sh usa `swift build` (debug) en lloc de `swift build -c release`.
+
+**Pendent:** Investigar la causa exacta i fer que release funcioni (important per distribució).
+
 ### Aprenentatges clau de la sessió
 
 1. **`@Observable` + propietat computada:** Usar `var devices: [DeviceInfo] { Array(dict.values) }` com a propietat computada NO funcionava amb `@Observable` — SwiftUI no detectava els canvis correctament al diccionari intern. Solució: usar stored array `var devices` + `Set<String>` de claus per dedup.
