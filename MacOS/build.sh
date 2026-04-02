@@ -4,11 +4,11 @@ set -e
 
 cd "$(dirname "$0")"
 
-BUILD_DIR=.build/arm64-apple-macosx/release
+BUILD_DIR=.build/arm64-apple-macosx/debug
 APP_DIR=iPhotoManager.app/Contents
 
-echo "⚙️  Building (release)..."
-swift build -c release
+echo "⚙️  Building (debug)..."
+swift build
 
 echo "📦 Copying binary and resources to .app bundle..."
 cp "$BUILD_DIR/iPhotoManager" "$APP_DIR/MacOS/iPhotoManager"
