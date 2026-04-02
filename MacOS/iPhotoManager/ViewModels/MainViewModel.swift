@@ -722,16 +722,15 @@ final class MainViewModel {
                             markedItems.insert(item.id)
                             pHashProcessed.insert(item.id)
                         }
-                    }
-                }
-
-                // Yield every 50 items to keep UI responsive and update counter
-                if i % 50 == 0 {
-                    await MainActor.run {
+                        // Update counter immediately when a new group is found
                         self.similarDuplicateCount = self.allPhotos.filter {
                             $0.duplicateGroupId?.hasPrefix("phash-") == true || $0.duplicateGroupId?.hasPrefix("exif-") == true
                         }.count
                     }
+                }
+
+                // Yield every 50 items to keep UI responsive
+                if i % 50 == 0 {
                     await Task.yield()
                 }
             }
@@ -1651,11 +1650,12 @@ final class MainViewModel {
                             item.duplicateGroupId = groupId
                             pHashProcessed.insert(item.id)
                         }
+                        self.similarDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("phash-") == true }.count
                     }
                 }
             }
 
-            // Update counts
+            // Final counts
             await MainActor.run {
                 self.exactDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("md5-") == true }.count
                 self.similarDuplicateCount = self.allPhotos.filter { $0.duplicateGroupId?.hasPrefix("phash-") == true }.count

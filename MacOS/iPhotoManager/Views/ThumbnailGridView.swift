@@ -242,14 +242,9 @@ struct ThumbnailGridView: View {
                     HStack(spacing: 4) {
                         Text("=")
                             .font(.system(size: 13, weight: .bold))
-                        if viewModel.isScanningExact {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .scaleEffect(0.7)
-                        } else {
-                            Text("\(viewModel.exactDuplicateCount)")
-                                .font(.system(size: 11))
-                        }
+                        Text("\(viewModel.exactDuplicateCount)")
+                            .font(.system(size: 11))
+                            .monospacedDigit()
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -260,9 +255,16 @@ struct ThumbnailGridView: View {
                             .stroke(viewModel.filterExactDuplicates ? Color.accentDim : Color.clear, lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .opacity(viewModel.isScanningExact ? 0.4 : 1.0)
+                    .animation(
+                        viewModel.isScanningExact
+                            ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                            : .default,
+                        value: viewModel.isScanningExact
+                    )
                 }
                 .buttonStyle(.plain)
-                .help("Duplicats exactes")
+                .help(viewModel.isScanningExact ? "Cercant duplicats exactes..." : "Duplicats exactes")
 
                 // Similar duplicates pill
                 Button {
@@ -271,18 +273,9 @@ struct ThumbnailGridView: View {
                     HStack(spacing: 4) {
                         Text("≈")
                             .font(.system(size: 13, weight: .bold))
-                        if viewModel.isScanningSimilar {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .scaleEffect(0.7)
-                            if viewModel.similarDuplicateCount > 0 {
-                                Text("\(viewModel.similarDuplicateCount)")
-                                    .font(.system(size: 11))
-                            }
-                        } else {
-                            Text("\(viewModel.similarDuplicateCount)")
-                                .font(.system(size: 11))
-                        }
+                        Text("\(viewModel.similarDuplicateCount)")
+                            .font(.system(size: 11))
+                            .monospacedDigit()
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -293,9 +286,16 @@ struct ThumbnailGridView: View {
                             .stroke(viewModel.filterSimilarDuplicates ? Color.accentDim : Color.clear, lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .opacity(viewModel.isScanningSimilar ? 0.4 : 1.0)
+                    .animation(
+                        viewModel.isScanningSimilar
+                            ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                            : .default,
+                        value: viewModel.isScanningSimilar
+                    )
                 }
                 .buttonStyle(.plain)
-                .help("Duplicats similars")
+                .help(viewModel.isScanningSimilar ? "Cercant duplicats similars..." : "Duplicats similars")
             }
 
             Spacer()
