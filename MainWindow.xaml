@@ -654,9 +654,8 @@
                              VirtualizingPanel.CacheLengthUnit="Page"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                             Background="Transparent" BorderThickness="0"
+                             Background="{StaticResource BgBase}" BorderThickness="0"
                              Margin="8,8,8,8"
-                             IsHitTestVisible="True"
                              Focusable="False">
                         <!-- Desactivar selecció visual nativa del ListBox -->
                         <ListBox.ItemContainerStyle>
