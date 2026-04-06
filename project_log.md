@@ -1,5 +1,71 @@
 # iPhotoManager — Project Log
 
+## 2026-04-06 — Windows al dia amb macOS: funcionalitats, UI i importació iPhone
+
+### Funcionalitats portades de macOS a Windows
+
+Totes les funcionalitats de la versió macOS (excepte les específiques d'ImageCaptureCore) s'han implementat a la versió Windows WPF/.NET 8:
+
+1. **Suport RAW + formats moderns** — CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF, SRW, RWL, HEIC, HEIF, AVIF, JXL, PSD, vídeos M4V/WebM/3GP/MTS via Magick.NET-Q8-AnyCPU. Extensions centralitzades a `PhotoItem`.
+
+2. **Preview embegut (Photo Mechanic style)** — Piràmide de 3 nivells al visor: thumbnail (instant) → quick preview embegut RAW/HEIC (~2048px, quasi instant) → resolució completa (background). `FileService.ExtractEmbeddedPreview()` i `LoadRawQuickPreview()`.
+
+3. **Deduplicació 3 nivells** — MD5 (exactes, pre-filtrat per mida), perceptual hash 8x8 (similars, Hamming ≤5), EXIF fingerprint (SHA256 datetime+camera+dimensions). Scan automàtic en background. UI: pastilles "= N" i "≈ N" amb filtre toggle.
+
+4. **Sort order** — Toggle ascendent/descendent per data. Integrat a `ApplyFilter()`.
+
+5. **Timeline mode** — Agrupació per dia/mes/any amb noms catalans. Headers clicables per col·lapsar/expandir. `TimelineGroup` amb `INotifyPropertyChanged`.
+
+6. **GPS + Geocoding** — Extracció GPS d'EXIF via Magick.NET. Reverse geocoding via Nominatim (OpenStreetMap) en català amb cache. Regla especial Catalunya. Mostrat a thumbnails i visor.
+
+7. **Recursive folder toggle** — Toggle per carpeta amb re-scan automàtic.
+
+8. **Disk scanner** — Escaneja Pictures, Desktop, Documents, Downloads + drives extraïbles. Panell lateral amb resultats, checkboxes, batch add.
+
+9. **Zoom cursor-aware** — Scroll wheel fa zoom cap al punt del cursor (com macOS `viewerSmoothZoom`).
+
+10. **Paperera de reciclatge** — Delete via `SHFileOperation` amb `FOF_ALLOWUNDO` en lloc d'eliminació permanent.
+
+### Browse mode iPhone (importació selectiva)
+
+**Flux anterior:** Detectar → importar TOT directament.
+**Flux nou (estil macOS):** Detectar → navegar fotos a la graella → seleccionar → importar només les seleccionades.
+
+- `BrowseDeviceAsync()`: guarda estat local, escaneja dispositiu (limitat als últims 2 mesos per velocitat), mostra fotos a la graella principal.
+- `ImportSelectedFromDeviceAsync()`: importa només les fotos seleccionades a la carpeta destí.
+- `ExitDeviceBrowseMode()`: restaura estat local anterior.
+- `LoadDeviceThumbnailsAsync()`: càrrega de thumbnails en background amb rotació EXIF.
+- `LoadDeviceFullImageAsync()`: descarrega fitxer temporal per visor a resolució completa.
+- Banner "Navegant: iPhone — X fitxers" amb botó desconnectar.
+- Barra d'accions amb "Importar" i "Desconnectar" en mode dispositiu.
+
+**Fix detecció iPhone:** `GetDrives()` retorna 0 per iPhones. Fallback a `\Internal Storage` directament.
+
+**Rotació thumbnails MTP:** Heurístic per detectar fotos portrait d'iPhone (thumbnail landscape → girar 90°). Thumbnail regenerat amb orientació correcta quan es descarrega la foto completa.
+
+**Limitació descoberta:** `DeleteFile` via MTP es congela indefinidament amb iPhones. L'eliminació de fotos de l'iPhone no és possible via MTP a Windows.
+
+### Icones i UI alineades amb macOS
+
+- Icona app: convertida des de macOS AppIcon.icns a .ico.
+- Títol: iPhoto Viewer → iPhoto Manager.
+- Toolbar reordenada (ordre macOS): disk scan → add folder → folders → destí → iPhone.
+- Barra de controls reordenada: comptador → filtres → select → sort → split → timeline → slider → duplicats.
+- Icones actualitzades: carpetes emoji 📁, zoom amb lupa, split vertical, tancar cercle, delete al visor.
+- Thumbnails: data + localització en lloc de filename.
+
+### NuGet afegit
+
+- **Magick.NET-Q8-AnyCPU** v14.11.1 — Únic paquet nou. Suport RAW, HEIC, AVIF, JXL, PSD, extracció EXIF/GPS.
+
+### Fitxers nous
+
+- `Models/TimelineGroup.cs` — Enum TimelineGrouping + classe TimelineGroup.
+- `Models/DiskScanResult.cs` — Model per resultats del disk scanner.
+- `Services/GeocodingService.cs` — Reverse geocoding via Nominatim amb cache i rate limit.
+
+---
+
 ## 2026-04-01 — Rename, formats RAW, velocitat i deduplicació
 
 ### Rename iPhotoViewer → iPhotoManager

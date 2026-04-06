@@ -99,6 +99,20 @@ internal class PositiveToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
+/// Converter: no-null → Visible, null → Collapsed.
+/// </summary>
+internal class NullToVisibilityConverter : IValueConverter
+{
+    public static readonly NullToVisibilityConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture)
+        => value is not null ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// Converter: double slider → mida de miniatura en píxels.
 /// S=80, M=150, L=250, XL=400
 /// </summary>

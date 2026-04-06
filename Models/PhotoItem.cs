@@ -12,6 +12,44 @@ public class PhotoItem : INotifyPropertyChanged
     private bool _isSelected;
     private BitmapSource? _thumbnail;
     private bool _isHighlighted;
+    private string? _duplicateGroupId;
+    private string? _location;
+
+    // === Extensions centralitzades (matching macOS) ===
+
+    /// <summary>Extensions d'imatge estàndard</summary>
+    public static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".heic", ".heif"
+    };
+
+    /// <summary>Extensions RAW de càmera</summary>
+    public static readonly HashSet<string> RawExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw", ".rwl"
+    };
+
+    /// <summary>Extensions de formats moderns</summary>
+    public static readonly HashSet<string> ModernExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".avif", ".jxl", ".psd"
+    };
+
+    /// <summary>Extensions de vídeo</summary>
+    public static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".3gp", ".mts", ".m2ts"
+    };
+
+    /// <summary>Totes les extensions suportades</summary>
+    public static readonly HashSet<string> AllExtensions = new(
+        ImageExtensions
+            .Concat(RawExtensions)
+            .Concat(ModernExtensions)
+            .Concat(VideoExtensions),
+        StringComparer.OrdinalIgnoreCase);
+
+    // === Propietats bàsiques ===
 
     /// <summary>Ruta completa (local o MTP)</summary>
     public required string FullPath { get; init; }
@@ -34,6 +72,44 @@ public class PhotoItem : INotifyPropertyChanged
     /// <summary>Alçada de la imatge original (si disponible)</summary>
     public int PixelHeight { get; set; }
 
+    /// <summary>Rotació del vídeo en graus (0, 90, 180, 270)</summary>
+    public int VideoRotation { get; set; }
+
+    // === Propietats de deduplicació ===
+
+    /// <summary>Hash MD5 del fitxer complet</summary>
+    public string? Md5Hash { get; set; }
+
+    /// <summary>Hash perceptual (8x8 grayscale average hash)</summary>
+    public ulong? PerceptualHash { get; set; }
+
+    /// <summary>Fingerprint EXIF (SHA256 de datetime+camera+dimensions)</summary>
+    public string? ExifFingerprint { get; set; }
+
+    /// <summary>ID del grup de duplicats (prefix: md5-, phash-, exif-)</summary>
+    public string? DuplicateGroupId
+    {
+        get => _duplicateGroupId;
+        set => SetField(ref _duplicateGroupId, value);
+    }
+
+    // === Propietats GPS/Localització ===
+
+    /// <summary>Latitud GPS des d'EXIF</summary>
+    public double? GpsLatitude { get; set; }
+
+    /// <summary>Longitud GPS des d'EXIF</summary>
+    public double? GpsLongitude { get; set; }
+
+    /// <summary>Localització geocodificada (ex: "Barcelona, Catalunya")</summary>
+    public string? Location
+    {
+        get => _location;
+        set => SetField(ref _location, value);
+    }
+
+    // === Propietats UI (observables) ===
+
     /// <summary>Seleccionat per l'usuari a la UI</summary>
     public bool IsSelected
     {
@@ -55,14 +131,32 @@ public class PhotoItem : INotifyPropertyChanged
         set => SetField(ref _thumbnail, value);
     }
 
-    /// <summary>Rotació del vídeo en graus (0, 90, 180, 270)</summary>
-    public int VideoRotation { get; set; }
+    // === Propietats computades ===
 
     /// <summary>Indica si és un vídeo</summary>
-    public bool IsVideo => FileName.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
-                        || FileName.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
-                        || FileName.EndsWith(".avi", StringComparison.OrdinalIgnoreCase)
-                        || FileName.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase);
+    public bool IsVideo
+    {
+        get
+        {
+            var ext = System.IO.Path.GetExtension(FileName);
+            return VideoExtensions.Contains(ext);
+        }
+    }
+
+    /// <summary>Indica si és un format RAW</summary>
+    public bool IsRaw
+    {
+        get
+        {
+            var ext = System.IO.Path.GetExtension(FileName);
+            return RawExtensions.Contains(ext);
+        }
+    }
+
+    /// <summary>Indica si és una imatge (no vídeo)</summary>
+    public bool IsImage => !IsVideo;
+
+    // === INotifyPropertyChanged ===
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

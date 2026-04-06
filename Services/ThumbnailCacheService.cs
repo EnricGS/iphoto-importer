@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Media.Imaging;
+using iPhotoImporter.Models;
 
 namespace iPhotoImporter.Services;
 
@@ -61,10 +62,11 @@ public class ThumbnailCacheService
         {
             ct.ThrowIfCancellationRequested();
             var ext = Path.GetExtension(filePath);
-            var isVideo = ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
-                       || ext.Equals(".mov", StringComparison.OrdinalIgnoreCase)
-                       || ext.Equals(".avi", StringComparison.OrdinalIgnoreCase)
-                       || ext.Equals(".mkv", StringComparison.OrdinalIgnoreCase);
+            var isVideo = PhotoItem.VideoExtensions.Contains(ext);
+            var isRaw = PhotoItem.RawExtensions.Contains(ext)
+                     || PhotoItem.ModernExtensions.Contains(ext)
+                     || ext.Equals(".heic", StringComparison.OrdinalIgnoreCase)
+                     || ext.Equals(".heif", StringComparison.OrdinalIgnoreCase);
 
             BitmapSource? thumb;
             if (isVideo)
@@ -79,6 +81,10 @@ public class ThumbnailCacheService
                 t.Start();
                 t.Join();
                 thumb = videoThumb;
+            }
+            else if (isRaw)
+            {
+                thumb = FileService.GenerateRawThumbnail(filePath, ThumbnailMaxSize);
             }
             else
             {

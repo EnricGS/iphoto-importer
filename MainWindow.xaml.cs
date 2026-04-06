@@ -220,6 +220,28 @@ public partial class MainWindow : Window
     /// Suporta Ctrl+clic, Shift+clic per selecció múltiple,
     /// i drag-and-drop cap a aplicacions externes.
     /// </summary>
+    /// <summary>
+    /// Clic a un element de la llista de dispositius per seleccionar-lo.
+    /// </summary>
+    private void DeviceItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is MediaDevices.MediaDevice device)
+        {
+            _viewModel.SelectedDevice = device;
+        }
+    }
+
+    /// <summary>
+    /// Clic al header d'un grup del timeline per col·lapsar/expandir.
+    /// </summary>
+    private void TimelineHeader_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is Models.TimelineGroup group)
+        {
+            _viewModel.ToggleGroupCollapseCommand.Execute(group.Key);
+        }
+    }
+
     private void Thumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement element && element.DataContext is PhotoItem item)
@@ -321,10 +343,25 @@ public partial class MainWindow : Window
         var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
         if (!viewerActive) return;
 
+        var oldZoom = _targetZoom;
         if (e.Delta > 0)
             _targetZoom = Math.Min(_targetZoom * 1.15, 10.0);
         else
             _targetZoom = Math.Max(_targetZoom / 1.15, 0.1);
+
+        // Zoom cursor-aware: ajustar offsets perquè el punt sota el cursor es mantingui fix
+        if (sender is FrameworkElement container)
+        {
+            var cursorPos = e.GetPosition(container);
+            var centerX = container.ActualWidth / 2.0;
+            var centerY = container.ActualHeight / 2.0;
+            var relX = cursorPos.X - centerX;
+            var relY = cursorPos.Y - centerY;
+
+            var factor = _targetZoom / oldZoom;
+            _viewModel.ViewerOffsetX = _viewModel.ViewerOffsetX * factor + relX * (1 - factor);
+            _viewModel.ViewerOffsetY = _viewModel.ViewerOffsetY * factor + relY * (1 - factor);
+        }
 
         AnimateZoomTo(_targetZoom);
         e.Handled = true;
@@ -462,9 +499,13 @@ public partial class MainWindow : Window
             player.LayoutTransform = new System.Windows.Media.RotateTransform(rotation);
         }
 
-        player.Source = new Uri(path, UriKind.Absolute);
-        player.Play();
-        _isVideoPlaying = true;
+        // Només carregar vídeos locals (paths MTP del dispositiu no es poden reproduir)
+        if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
+        {
+            player.Source = uri;
+            player.Play();
+            _isVideoPlaying = true;
+        }
     }
 
     private void VideoPlay_Click(object sender, RoutedEventArgs e)

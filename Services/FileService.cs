@@ -1,8 +1,13 @@
 using System.IO;
+using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ImageMagick;
 using iPhotoImporter.Models;
 
 namespace iPhotoImporter.Services;
@@ -13,27 +18,14 @@ namespace iPhotoImporter.Services;
 /// </summary>
 public class FileService
 {
-    /// <summary>Extensions d'imatge suportades</summary>
-    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif"
-    };
-
-    /// <summary>Extensions de vídeo suportades</summary>
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp4", ".mov", ".avi", ".mkv"
-    };
-
-    /// <summary>Totes les extensions suportades</summary>
-    public static readonly HashSet<string> AllExtensions = new(
-        ImageExtensions.Concat(VideoExtensions), StringComparer.OrdinalIgnoreCase);
+    // Extensions centralitzades a PhotoItem — usar PhotoItem.AllExtensions, etc.
 
     /// <summary>
     /// Escaneja una carpeta local i retorna els fitxers d'imatge/vídeo trobats.
     /// </summary>
     public async Task<List<PhotoItem>> ScanFolderAsync(
         string folderPath,
+        bool recursive = true,
         IProgress<(int scanned, int found, string currentFile)>? progress = null,
         CancellationToken ct = default)
     {
@@ -45,15 +37,15 @@ public class FileService
             var dir = new DirectoryInfo(folderPath);
             if (!dir.Exists) return;
 
-            // Escanejar recursivament
-            foreach (var file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
+            var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            foreach (var file in dir.EnumerateFiles("*.*", searchOption))
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (!AllExtensions.Contains(file.Extension)) continue;
+                if (!PhotoItem.AllExtensions.Contains(file.Extension)) continue;
                 scanned++;
 
-                var isVideo = VideoExtensions.Contains(file.Extension);
+                var isVideo = PhotoItem.VideoExtensions.Contains(file.Extension);
                 var photo = new PhotoItem
                 {
                     FullPath = file.FullName,
@@ -355,7 +347,7 @@ public class FileService
     }
 
     /// <summary>
-    /// Elimina fitxers (els envia a la paperera si és possible).
+    /// Elimina fitxers enviant-los a la paperera de reciclatge de Windows.
     /// </summary>
     public async Task<int> DeleteFilesAsync(
         IList<PhotoItem> files,
@@ -372,11 +364,51 @@ public class FileService
             await Task.Run(() =>
             {
                 if (File.Exists(file.FullPath))
-                    File.Delete(file.FullPath);
+                    SendToRecycleBin(file.FullPath);
             }, ct);
             deleted++;
         }
         return deleted;
+    }
+
+    /// <summary>
+    /// Envia un fitxer a la paperera de reciclatge via SHFileOperation.
+    /// </summary>
+    private static void SendToRecycleBin(string filePath)
+    {
+        var fileOp = new SHFILEOPSTRUCT
+        {
+            wFunc = FO_DELETE,
+            pFrom = filePath + '\0' + '\0', // Doble null-terminated
+            fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT
+        };
+        SHFileOperation(ref fileOp);
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHFileOperation(ref SHFILEOPSTRUCT fileOp);
+
+    private const int FO_DELETE = 0x0003;
+    private const int FOF_ALLOWUNDO = 0x0040;
+    private const int FOF_NOCONFIRMATION = 0x0010;
+    private const int FOF_NOERRORUI = 0x0400;
+    private const int FOF_SILENT = 0x0004;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd;
+        public int wFunc;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string pFrom;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? pTo;
+        public ushort fFlags;
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpszProgressTitle;
     }
 
     /// <summary>
@@ -399,6 +431,298 @@ public class FileService
 
         return destPath;
     }
+
+    // === Suport RAW via Magick.NET ===
+
+    /// <summary>
+    /// Genera una miniatura d'un fitxer RAW/HEIC/AVIF/PSD.
+    /// Primer intenta extreure el preview JPEG embegut (instant, estil Photo Mechanic).
+    /// Si no n'hi ha, fa decode complet amb downscale.
+    /// </summary>
+    public static BitmapSource? GenerateRawThumbnail(string filePath, int maxPixelSize = 512)
+    {
+        try
+        {
+            // 1. Intentar extreure el preview JPEG embegut (molt ràpid)
+            var embedded = ExtractEmbeddedPreview(filePath, maxPixelSize);
+            if (embedded != null) return embedded;
+
+            // 2. Fallback: decode complet amb downscale
+            using var image = new MagickImage(filePath);
+            image.AutoOrient();
+            var geo = new MagickGeometry((uint)maxPixelSize, (uint)maxPixelSize)
+            {
+                IgnoreAspectRatio = false,
+                Greater = true
+            };
+            image.Resize(geo);
+            return ConvertToBitmapSource(image);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extreu el preview JPEG embegut dins un fitxer RAW/HEIC.
+    /// La majoria de càmeres incrusten un JPEG dins els RAW.
+    /// </summary>
+    public static BitmapSource? ExtractEmbeddedPreview(string filePath, int minSize = 200)
+    {
+        try
+        {
+            using var image = new MagickImage(filePath);
+            var profile = image.GetExifProfile();
+            var thumbData = profile?.CreateThumbnail();
+            if (thumbData == null) return null;
+
+            using var thumbStream = new MemoryStream(thumbData.ToByteArray());
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = thumbStream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            // Verificar que el preview és prou gran
+            if (bitmap.PixelWidth < minSize && bitmap.PixelHeight < minSize)
+                return null;
+
+            return bitmap;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Carrega una imatge RAW a resolució completa via Magick.NET.
+    /// </summary>
+    public static BitmapSource? LoadRawFullImage(string filePath, int? maxPixelWidth = null)
+    {
+        try
+        {
+            using var image = new MagickImage(filePath);
+            image.AutoOrient();
+            if (maxPixelWidth.HasValue && image.Width > maxPixelWidth.Value)
+            {
+                var geo = new MagickGeometry((uint)maxPixelWidth.Value, 0)
+                {
+                    IgnoreAspectRatio = false,
+                    Greater = true
+                };
+                image.Resize(geo);
+            }
+            return ConvertToBitmapSource(image);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Carrega un quick preview RAW (nivell 2 piràmide, ~2048px).
+    /// </summary>
+    public static BitmapSource? LoadRawQuickPreview(string filePath, int maxSize = 2048)
+    {
+        try
+        {
+            // Primer intentar preview embegut gran
+            var embedded = ExtractEmbeddedPreview(filePath, 400);
+            if (embedded != null && embedded.PixelWidth >= 1000)
+                return embedded;
+
+            // Sinó, decode complet amb downscale
+            using var image = new MagickImage(filePath);
+            image.AutoOrient();
+            if (image.Width > maxSize || image.Height > maxSize)
+            {
+                var geo = new MagickGeometry((uint)maxSize, (uint)maxSize)
+                {
+                    IgnoreAspectRatio = false,
+                    Greater = true
+                };
+                image.Resize(geo);
+            }
+            return ConvertToBitmapSource(image);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Converteix un MagickImage a BitmapSource WPF.
+    /// </summary>
+    private static BitmapSource ConvertToBitmapSource(MagickImage image)
+    {
+        var bytes = image.ToByteArray(MagickFormat.Bmp);
+        using var ms = new MemoryStream(bytes);
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.StreamSource = ms;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    // === GPS ===
+
+    /// <summary>
+    /// Extreu les coordenades GPS des de les metadades EXIF d'un fitxer.
+    /// </summary>
+    public static (double lat, double lon)? ExtractGpsLocation(string filePath)
+    {
+        try
+        {
+            using var image = new MagickImage(filePath);
+            var exif = image.GetExifProfile();
+            if (exif == null) return null;
+
+            var latRef = exif.GetValue(ExifTag.GPSLatitudeRef)?.Value;
+            var latValues = exif.GetValue(ExifTag.GPSLatitude)?.Value;
+            var lonRef = exif.GetValue(ExifTag.GPSLongitudeRef)?.Value;
+            var lonValues = exif.GetValue(ExifTag.GPSLongitude)?.Value;
+
+            if (latValues == null || lonValues == null || latValues.Length < 3 || lonValues.Length < 3)
+                return null;
+
+            static double ToDegrees(Rational[] values)
+            {
+                return values[0].ToDouble() + values[1].ToDouble() / 60.0 + values[2].ToDouble() / 3600.0;
+            }
+
+            var lat = ToDegrees(latValues);
+            var lon = ToDegrees(lonValues);
+
+            if (latRef == "S") lat = -lat;
+            if (lonRef == "W") lon = -lon;
+
+            if (lat == 0 && lon == 0) return null;
+            return (lat, lon);
+        }
+        catch { return null; }
+    }
+
+    // === Deduplicació: hashing ===
+
+    /// <summary>
+    /// Computa el hash MD5 d'un fitxer (per chunks de 64KB per eficiència).
+    /// </summary>
+    public static string? ComputeMD5(string filePath)
+    {
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536);
+            var hash = MD5.HashData(stream);
+            return Convert.ToHexString(hash);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Computa un hash perceptual (average hash 8x8 grayscale, 64 bits).
+    /// Dues imatges amb Hamming distance ≤ 5 es consideren duplicats visuals.
+    /// </summary>
+    public static ulong? ComputePerceptualHash(string filePath)
+    {
+        try
+        {
+            var ext = Path.GetExtension(filePath);
+            bool needsMagick = PhotoItem.RawExtensions.Contains(ext)
+                            || PhotoItem.ModernExtensions.Contains(ext)
+                            || ext.Equals(".heic", StringComparison.OrdinalIgnoreCase)
+                            || ext.Equals(".heif", StringComparison.OrdinalIgnoreCase);
+
+            if (needsMagick)
+            {
+                using var image = new MagickImage(filePath);
+                image.Resize(8, 8);
+                image.ColorSpace = ColorSpace.Gray;
+                var bytes = image.ToByteArray(MagickFormat.Gray);
+                if (bytes.Length < 64) return null;
+                return ComputeAverageHash(bytes);
+            }
+
+            // WPF decode directe per formats estàndard (més ràpid)
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.UriSource = new Uri(filePath, UriKind.Absolute);
+            bitmap.DecodePixelWidth = 8;
+            bitmap.DecodePixelHeight = 8;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            // Convertir a grayscale
+            var gray = new FormatConvertedBitmap(bitmap, PixelFormats.Gray8, null, 0);
+            gray.Freeze();
+            var pixels = new byte[64];
+            gray.CopyPixels(pixels, 8, 0);
+            return ComputeAverageHash(pixels);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Computa l'average hash a partir de 64 bytes de grayscale.
+    /// </summary>
+    private static ulong ComputeAverageHash(byte[] pixels)
+    {
+        // Calcular la mitjana
+        long sum = 0;
+        var count = Math.Min(pixels.Length, 64);
+        for (var i = 0; i < count; i++)
+            sum += pixels[i];
+        var avg = sum / count;
+
+        // Generar hash: 1 si per sobre la mitjana, 0 si per sota
+        ulong hash = 0;
+        for (var i = 0; i < count; i++)
+        {
+            if (pixels[i] >= avg)
+                hash |= 1UL << i;
+        }
+        return hash;
+    }
+
+    /// <summary>
+    /// Computa un fingerprint EXIF: SHA256 de (DateTimeOriginal|Make|Model|Width|Height).
+    /// </summary>
+    public static string? ComputeExifFingerprint(string filePath)
+    {
+        try
+        {
+            using var image = new MagickImage(filePath);
+            var exif = image.GetExifProfile();
+            if (exif == null) return null;
+
+            var dateTime = exif.GetValue(ExifTag.DateTimeOriginal)?.Value
+                        ?? exif.GetValue(ExifTag.DateTime)?.Value;
+            var make = exif.GetValue(ExifTag.Make)?.Value;
+            var model = exif.GetValue(ExifTag.Model)?.Value;
+            var width = image.Width;
+            var height = image.Height;
+
+            if (dateTime == null) return null;
+
+            var raw = $"{dateTime}|{make}|{model}|{width}|{height}";
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+            return Convert.ToHexString(hash)[..32];
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Distància Hamming entre dos hashes perceptuals.
+    /// </summary>
+    public static int HammingDistance(ulong a, ulong b)
+        => BitOperations.PopCount(a ^ b);
 
     // === Miniatures de vídeo via Windows Shell (IShellItemImageFactory) ===
 

@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.11.1" />
     <PackageReference Include="MediaDevices" Version="1.10.2" />
   </ItemGroup>
 

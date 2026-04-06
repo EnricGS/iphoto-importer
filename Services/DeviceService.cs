@@ -82,13 +82,35 @@ public class DeviceService : IDisposable
         await RunOnSta(() =>
         {
             EnsureConnected(device);
+
+            // Primer intentar drives estàndard
             var drives = device.GetDrives();
+            var scannedRoots = new List<string>();
 
             foreach (var drive in drives)
             {
                 if (!drive.IsReady) continue;
+                scannedRoots.Add(drive.RootDirectory.FullName);
                 ScanDirectory(device, drive.RootDirectory.FullName, photos, onPhotoFound,
                     scanProgress, minDate, maxDate, scannedCount);
+            }
+
+            // Si no hi ha drives (comú en iPhones), buscar \Internal Storage directament
+            if (scannedRoots.Count == 0)
+            {
+                string[] fallbackRoots = [@"\Internal Storage", @"\iPod", @"\Phone", @"\DCIM"];
+                foreach (var root in fallbackRoots)
+                {
+                    try
+                    {
+                        if (device.DirectoryExists(root))
+                        {
+                            ScanDirectory(device, root, photos, onPhotoFound,
+                                scanProgress, minDate, maxDate, scannedCount);
+                        }
+                    }
+                    catch { }
+                }
             }
         });
 
@@ -155,11 +177,43 @@ public class DeviceService : IDisposable
                 if (ms.Length == 0) return null;
 
                 ms.Position = 0;
+
+                // Intentar detectar rotació EXIF del thumbnail
+                var rotation = DetectJpegExifRotation(ms.ToArray());
+                ms.Position = 0;
+
+                // Si el thumbnail no porta EXIF, deduir rotació:
+                // Els iPhones fan fotos en landscape nativament i usen EXIF rotation=6 (90°).
+                // Si el thumbnail és més ample que alt, probablement cal girar-lo 90°.
+                if (rotation == System.Windows.Media.Imaging.Rotation.Rotate0)
+                {
+                    try
+                    {
+                        // Decodificar per saber dimensions del thumbnail
+                        var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.None, BitmapCacheOption.None);
+                        if (decoder.Frames.Count > 0)
+                        {
+                            var frame = decoder.Frames[0];
+                            // Si l'extensió és HEIC/JPG d'iPhone i el thumbnail és landscape,
+                            // probablement la foto és portrait amb rotació EXIF
+                            var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                            if ((ext is ".heic" or ".heif" or ".jpg" or ".jpeg")
+                                && frame.PixelWidth > frame.PixelHeight)
+                            {
+                                rotation = System.Windows.Media.Imaging.Rotation.Rotate90;
+                            }
+                        }
+                        ms.Position = 0;
+                    }
+                    catch { ms.Position = 0; }
+                }
+
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.CacheOption = BitmapCacheOption.OnLoad;
                 bitmap.StreamSource = ms;
-                bitmap.DecodePixelWidth = 120;
+                bitmap.DecodePixelWidth = 256;
+                bitmap.Rotation = rotation;
                 bitmap.EndInit();
                 bitmap.Freeze();
                 return bitmap;
@@ -169,6 +223,120 @@ public class DeviceService : IDisposable
                 return null;
             }
         });
+    }
+
+    /// <summary>
+    /// Descarrega un fitxer del dispositiu a un directori temporal.
+    /// Retorna el path local del fitxer temporal.
+    /// </summary>
+    public async Task<string?> DownloadTempFileAsync(MediaDevice device, PhotoItem photo)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "iPhotoImporter", "DevicePreview");
+        Directory.CreateDirectory(tempDir);
+        var tempPath = Path.Combine(tempDir, photo.FileName);
+
+        // Si ja existeix al temp, retornar-lo directament
+        if (File.Exists(tempPath))
+            return tempPath;
+
+        try
+        {
+            await RunOnSta(() =>
+            {
+                EnsureConnected(device);
+                using var fs = File.Create(tempPath);
+                device.DownloadFile(photo.FullPath, fs);
+            });
+            return tempPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Elimina fitxers del dispositiu.
+    /// </summary>
+    // NOTA: DeleteFile via MTP no funciona amb iPhones — es congela indefinidament.
+    // L'eliminació de fotos s'ha de fer des del propi dispositiu.
+
+    /// <summary>
+    /// Detecta la rotació EXIF d'un buffer JPEG.
+    /// </summary>
+    private static System.Windows.Media.Imaging.Rotation DetectJpegExifRotation(byte[] buffer)
+    {
+        try
+        {
+            if (buffer.Length < 4 || buffer[0] != 0xFF || buffer[1] != 0xD8)
+                return System.Windows.Media.Imaging.Rotation.Rotate0;
+
+            int offset = 2;
+            while (offset < buffer.Length - 4)
+            {
+                if (buffer[offset] != 0xFF) break;
+                byte marker = buffer[offset + 1];
+                if (marker == 0xE1) // APP1 = EXIF
+                {
+                    offset += 2;
+                    int segmentLen = (buffer[offset] << 8) | buffer[offset + 1];
+                    offset += 2;
+
+                    if (offset + 6 > buffer.Length) return System.Windows.Media.Imaging.Rotation.Rotate0;
+                    if (buffer[offset] != 0x45 || buffer[offset + 1] != 0x78) // "Ex"
+                        return System.Windows.Media.Imaging.Rotation.Rotate0;
+
+                    int tiffStart = offset + 6;
+                    if (tiffStart + 8 > buffer.Length) return System.Windows.Media.Imaging.Rotation.Rotate0;
+                    bool littleEndian = buffer[tiffStart] == 0x49;
+
+                    int ReadUInt16(int pos)
+                    {
+                        if (pos + 2 > buffer.Length) return 0;
+                        return littleEndian ? buffer[pos] | (buffer[pos + 1] << 8) : (buffer[pos] << 8) | buffer[pos + 1];
+                    }
+
+                    int ReadUInt32(int pos)
+                    {
+                        if (pos + 4 > buffer.Length) return 0;
+                        return littleEndian
+                            ? buffer[pos] | (buffer[pos + 1] << 8) | (buffer[pos + 2] << 16) | (buffer[pos + 3] << 24)
+                            : (buffer[pos] << 24) | (buffer[pos + 1] << 16) | (buffer[pos + 2] << 8) | buffer[pos + 3];
+                    }
+
+                    int ifdOffset = ReadUInt32(tiffStart + 4);
+                    int ifdPos = tiffStart + ifdOffset;
+                    if (ifdPos + 2 > buffer.Length) return System.Windows.Media.Imaging.Rotation.Rotate0;
+                    int entryCount = ReadUInt16(ifdPos);
+                    ifdPos += 2;
+
+                    for (int i = 0; i < entryCount; i++)
+                    {
+                        int entryPos = ifdPos + i * 12;
+                        if (entryPos + 12 > buffer.Length) break;
+                        int tag = ReadUInt16(entryPos);
+                        if (tag == 0x0112) // Orientation
+                        {
+                            int value = ReadUInt16(entryPos + 8);
+                            return value switch
+                            {
+                                3 => System.Windows.Media.Imaging.Rotation.Rotate180,
+                                6 => System.Windows.Media.Imaging.Rotation.Rotate90,
+                                8 => System.Windows.Media.Imaging.Rotation.Rotate270,
+                                _ => System.Windows.Media.Imaging.Rotation.Rotate0
+                            };
+                        }
+                    }
+                    return System.Windows.Media.Imaging.Rotation.Rotate0;
+                }
+                offset += 2;
+                if (offset + 2 > buffer.Length) break;
+                int len = (buffer[offset] << 8) | buffer[offset + 1];
+                offset += len;
+            }
+        }
+        catch { }
+        return System.Windows.Media.Imaging.Rotation.Rotate0;
     }
 
     private void ScanDirectory(MediaDevice device, string path, List<PhotoItem> results,
