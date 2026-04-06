@@ -251,6 +251,12 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// Quan canvia el filtre, actualitzem la col·lecció visible.
     /// </summary>
+    partial void OnIsTimelineModeChanged(bool value)
+    {
+        if (value)
+            RebuildGroups();
+    }
+
     partial void OnFilterExactDuplicatesChanged(bool value)
     {
         ApplyFilter();
@@ -476,9 +482,15 @@ public partial class MainViewModel : ObservableObject
     {
         GroupedPhotos.Clear();
 
-        var groups = Photos
+        var photosList = Photos.ToList();
+        System.Diagnostics.Debug.WriteLine($"[Timeline] RebuildGroups: Photos.Count={photosList.Count}, IsTimelineMode={IsTimelineMode}");
+
+        var groups = photosList
             .GroupBy(p => GetGroupKey(p.DateTaken, TimelineGrouping))
-            .OrderByDescending(g => g.First().DateTaken ?? DateTime.MinValue);
+            .OrderByDescending(g => g.First().DateTaken ?? DateTime.MinValue)
+            .ToList();
+
+        System.Diagnostics.Debug.WriteLine($"[Timeline] Groups created: {groups.Count}");
 
         foreach (var group in groups)
         {
@@ -491,6 +503,8 @@ public partial class MainViewModel : ObservableObject
                 tg.Photos.Add(photo);
             GroupedPhotos.Add(tg);
         }
+
+        StatusMessage = $"Timeline: {GroupedPhotos.Count} grups, {photosList.Count} fotos";
     }
 
     /// <summary>
@@ -1675,6 +1689,7 @@ public partial class MainViewModel : ObservableObject
     private List<string> _savedOpenFolders = [];
     private string? _savedCurrentFolder;
     private CancellationTokenSource? _deviceThumbnailCts;
+    private DateTime _deviceMinDate;
 
     [RelayCommand]
     private void ToggleImportPanel()
@@ -1763,7 +1778,8 @@ public partial class MainViewModel : ObservableObject
 
             // Limitar al mes actual i l'anterior (iPhone és molt lent escanejant tot)
             var now = DateTime.Now;
-            var minDate = new DateTime(now.Year, now.Month, 1).AddMonths(-1);
+            _deviceMinDate = new DateTime(now.Year, now.Month, 1).AddMonths(-1);
+            var minDate = _deviceMinDate;
 
             await _deviceService.GetPhotosAsync(SelectedDevice, photo =>
             {
@@ -1813,6 +1829,61 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// Carrega thumbnails del dispositiu en segon pla.
     /// </summary>
+    /// <summary>
+    /// Carrega un mes addicional de fotos del dispositiu.
+    /// </summary>
+    [RelayCommand]
+    private async Task LoadMoreFromDeviceAsync()
+    {
+        if (SelectedDevice == null || _deviceService == null || !IsDeviceBrowseMode) return;
+
+        // Retrocedir un mes
+        var newMinDate = _deviceMinDate.AddMonths(-1);
+        var maxDate = _deviceMinDate.AddDays(-1); // Fins just abans del que ja tenim
+
+        IsBrowsingDevice = true;
+        ImportStatusMessage = $"Carregant mes anterior ({newMinDate:MM/yyyy})...";
+
+        try
+        {
+            var newPhotos = new List<PhotoItem>();
+            var scanProgress = new Progress<(string folder, int scanned, int found)>(info =>
+            {
+                ImportStatusMessage = $"Escanejant... {info.found} fotos — {info.folder}";
+            });
+
+            await _deviceService.GetPhotosAsync(SelectedDevice, photo =>
+            {
+                Application.Current.Dispatcher.Invoke(() => newPhotos.Add(photo));
+            }, scanProgress, minDate: newMinDate, maxDate: maxDate);
+
+            _deviceMinDate = newMinDate;
+
+            if (newPhotos.Count > 0)
+            {
+                _allPhotos.AddRange(newPhotos);
+                _allPhotos.Sort((a, b) => (b.DateTaken ?? DateTime.MinValue).CompareTo(a.DateTaken ?? DateTime.MinValue));
+                PhotoCount = _allPhotos.Count(p => !p.IsVideo);
+                VideoCount = _allPhotos.Count(p => p.IsVideo);
+                DeviceFileCount = _allPhotos.Count;
+                ApplyFilter();
+                _ = LoadDeviceThumbnailsAsync();
+            }
+
+            ImportStatusMessage = newPhotos.Count > 0
+                ? $"+{newPhotos.Count} fotos carregades (des de {newMinDate:MM/yyyy}). Total: {_allPhotos.Count}"
+                : $"Cap foto trobada al mes {newMinDate:MM/yyyy}. Total: {_allPhotos.Count}";
+        }
+        catch (Exception ex)
+        {
+            ImportStatusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsBrowsingDevice = false;
+        }
+    }
+
     private async Task LoadDeviceThumbnailsAsync()
     {
         if (SelectedDevice == null || _deviceService == null) return;

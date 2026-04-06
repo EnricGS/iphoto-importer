@@ -45,6 +45,14 @@ Totes les funcionalitats de la versió macOS (excepte les específiques d'ImageC
 
 **Limitació descoberta:** `DeleteFile` via MTP es congela indefinidament amb iPhones. L'eliminació de fotos de l'iPhone no és possible via MTP a Windows.
 
+### Càrrega incremental per mesos (browse iPhone)
+
+Al banner de browse mode hi ha el botó "**+ Mes anterior**" que carrega un mes addicional de fotos del dispositiu. Cada cop retrocedeix un mes, escaneja només el mes nou (sense re-escanejar), i afegeix les fotos a la graella. Spinner animat + missatge d'estat mentre carrega.
+
+### Fix timeline mode
+
+El `ToggleButton` de timeline canviava `IsTimelineMode` via binding però no cridava `RebuildGroups()`. Afegit `OnIsTimelineModeChanged` partial method que reconstrueix els grups automàticament.
+
 ### Icones i UI alineades amb macOS
 
 - Icona app: convertida des de macOS AppIcon.icns a .ico.

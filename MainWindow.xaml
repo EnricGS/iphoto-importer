@@ -436,6 +436,25 @@
                             <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                        FontSize="12" Foreground="{StaticResource Accent}"/>
                         </Button>
+                        <!-- Botó carregar més (visible quan NO està carregant) -->
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}" Padding="8,4" Margin="0,0,8,0"
+                                Command="{Binding LoadMoreFromDeviceCommand}"
+                                ToolTip="Carregar un mes addicional de fotos"
+                                Visibility="{Binding IsBrowsingDevice, Converter={StaticResource InvBoolToVis}}">
+                            <TextBlock FontSize="11" Foreground="{StaticResource Accent}">
+                                <Run Text="+ Mes anterior"/>
+                            </TextBlock>
+                        </Button>
+                        <!-- Spinner + missatge mentre carrega -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,8,0"
+                                    Visibility="{Binding IsBrowsingDevice, Converter={StaticResource BoolToVis}}">
+                            <ProgressBar IsIndeterminate="True" Width="60" Height="3"
+                                         Foreground="{StaticResource Accent}"
+                                         Background="{StaticResource BgElevated}" BorderThickness="0"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding ImportStatusMessage}" FontSize="10"
+                                       Foreground="{StaticResource Accent}" VerticalAlignment="Center"/>
+                        </StackPanel>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="&#xE8EA;" FontFamily="Segoe MDL2 Assets" FontSize="13"
                                        Foreground="{StaticResource Accent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -756,7 +775,7 @@
                 </Grid>
 
                 <!-- Vista Timeline (agrupada per data) -->
-                <ScrollViewer Grid.Row="2"
+                <ScrollViewer Grid.Row="2" Panel.ZIndex="1"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
                               Background="{StaticResource BgBase}"
