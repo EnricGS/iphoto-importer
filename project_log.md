@@ -45,6 +45,24 @@ Totes les funcionalitats de la versió macOS (excepte les específiques d'ImageC
 
 **Limitació descoberta:** `DeleteFile` via MTP es congela indefinidament amb iPhones. L'eliminació de fotos de l'iPhone no és possible via MTP a Windows.
 
+### Optimització de rendiment (velocitat macOS)
+
+**Problema:** La versió Windows era molt més lenta que macOS en càrrega de thumbnails, canvi a timeline, i scroll.
+
+**Causa arrel:** 5 problemes identificats:
+1. `WrapPanel` de WPF NO virtualitza — creava 5000 elements UI amb 5000 fotos.
+2. `ObservableCollection.Clear()` + `Add()` en bucle generava N+1 events `CollectionChanged`.
+3. `Dispatcher.Invoke()` (síncron) bloquejava threads background esperant la UI.
+4. Batch size 4 massa petit per SSDs moderns.
+5. Timeline sense virtualització — renderitzava tots els grups d'un cop.
+
+**Solucions:**
+1. **VirtualizingWrapPanel** (NuGet `WpfToolkit.VirtualizingWrapPanel`) per la graella principal. `ListBox` amb `ItemContainerStyle` transparent per mantenir la selecció custom.
+2. **Assignació atòmica** — `Photos = new ObservableCollection<PhotoItem>(sorted)` en lloc de Clear+Add. `Photos` canviat de `{ get; }` a `{ get; private set; }` amb `SetProperty`. Mateix patró per `GroupedPhotos`.
+3. **`Dispatcher.InvokeAsync()`** no-bloquejant + actualització de 12 thumbnails en una sola crida Dispatcher.
+4. **Batch size 12** — 3x més thumbnails en paral·lel.
+5. **Timeline virtualitzada** — `ListBox` amb `VirtualizingStackPanel` built-in per la llista de grups (equivalent a `LazyVStack` de SwiftUI).
+
 ### Càrrega incremental per mesos (browse iPhone)
 
 Al banner de browse mode hi ha el botó "**+ Mes anterior**" que carrega un mes addicional de fotos del dispositiu. Cada cop retrocedeix un mes, escaneja només el mes nou (sense re-escanejar), i afegeix les fotos a la graella. Spinner animat + missatge d'estat mentre carrega.

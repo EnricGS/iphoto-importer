@@ -60,7 +60,12 @@ public partial class MainViewModel : ObservableObject
     private readonly List<PhotoItem> _allPhotos = [];
 
     /// <summary>Col·lecció filtrada de fotos mostrades a la graella</summary>
-    public ObservableCollection<PhotoItem> Photos { get; } = [];
+    private ObservableCollection<PhotoItem> _photos = [];
+    public ObservableCollection<PhotoItem> Photos
+    {
+        get => _photos;
+        private set => SetProperty(ref _photos, value);
+    }
 
     /// <summary>Conjunt de fotos seleccionades</summary>
     public ObservableCollection<PhotoItem> SelectedPhotos { get; } = [];
@@ -213,7 +218,12 @@ public partial class MainViewModel : ObservableObject
     private TimelineGrouping _timelineGrouping = TimelineGrouping.Month;
 
     /// <summary>Grups de fotos per timeline</summary>
-    public ObservableCollection<TimelineGroup> GroupedPhotos { get; } = [];
+    private ObservableCollection<TimelineGroup> _groupedPhotos = [];
+    public ObservableCollection<TimelineGroup> GroupedPhotos
+    {
+        get => _groupedPhotos;
+        private set => SetProperty(ref _groupedPhotos, value);
+    }
 
     /// <summary>Grups col·lapsats</summary>
     private readonly HashSet<string> _collapsedGroups = [];
@@ -298,9 +308,6 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void ApplyFilter()
     {
-        Photos.Clear();
-        SelectedPhotos.Clear();
-
         var filtered = (FilterPhotos, FilterVideos) switch
         {
             (true, true) => _allPhotos.AsEnumerable(),
@@ -309,7 +316,6 @@ public partial class MainViewModel : ObservableObject
             _ => _allPhotos.AsEnumerable()
         };
 
-        // Filtre de duplicats
         if (FilterExactDuplicates || FilterSimilarDuplicates)
         {
             filtered = filtered.Where(p =>
@@ -321,18 +327,21 @@ public partial class MainViewModel : ObservableObject
             });
         }
 
-        // Ordenar per data
         var sorted = SortAscending
-            ? filtered.OrderBy(p => p.DateTaken ?? DateTime.MaxValue)
-            : filtered.OrderByDescending(p => p.DateTaken ?? DateTime.MinValue);
+            ? filtered.OrderBy(p => p.DateTaken ?? DateTime.MaxValue).ToList()
+            : filtered.OrderByDescending(p => p.DateTaken ?? DateTime.MinValue).ToList();
 
+        // Reassignar subscripcions i reset selecció
         foreach (var item in sorted)
         {
             item.PropertyChanged -= OnPhotoPropertyChanged;
             item.PropertyChanged += OnPhotoPropertyChanged;
             item.IsSelected = false;
-            Photos.Add(item);
         }
+
+        // Assignació atòmica — un sol event CollectionChanged en lloc de N
+        Photos = new ObservableCollection<PhotoItem>(sorted);
+        SelectedPhotos.Clear();
 
         UpdateStatusMessage();
 
@@ -480,31 +489,22 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void RebuildGroups()
     {
-        GroupedPhotos.Clear();
-
         var photosList = Photos.ToList();
-        System.Diagnostics.Debug.WriteLine($"[Timeline] RebuildGroups: Photos.Count={photosList.Count}, IsTimelineMode={IsTimelineMode}");
 
-        var groups = photosList
+        var newGroups = photosList
             .GroupBy(p => GetGroupKey(p.DateTaken, TimelineGrouping))
             .OrderByDescending(g => g.First().DateTaken ?? DateTime.MinValue)
-            .ToList();
-
-        System.Diagnostics.Debug.WriteLine($"[Timeline] Groups created: {groups.Count}");
-
-        foreach (var group in groups)
-        {
-            var tg = new TimelineGroup
+            .Select(group => new TimelineGroup
             {
                 Key = group.Key,
-                IsCollapsed = _collapsedGroups.Contains(group.Key)
-            };
-            foreach (var photo in SortAscending ? group.OrderBy(p => p.DateTaken) : group.OrderByDescending(p => p.DateTaken))
-                tg.Photos.Add(photo);
-            GroupedPhotos.Add(tg);
-        }
+                IsCollapsed = _collapsedGroups.Contains(group.Key),
+                Photos = new System.Collections.ObjectModel.ObservableCollection<PhotoItem>(
+                    SortAscending ? group.OrderBy(p => p.DateTaken) : group.OrderByDescending(p => p.DateTaken))
+            })
+            .ToList();
 
-        StatusMessage = $"Timeline: {GroupedPhotos.Count} grups, {photosList.Count} fotos";
+        // Assignació atòmica
+        GroupedPhotos = new ObservableCollection<TimelineGroup>(newGroups);
     }
 
     /// <summary>
@@ -930,7 +930,7 @@ public partial class MainViewModel : ObservableObject
                 var location = await _geocodingService.ReverseGeocodeAsync(gps.Value.lat, gps.Value.lon, ct);
                 if (location != null)
                 {
-                    Application.Current?.Dispatcher.Invoke(() =>
+                    Application.Current?.Dispatcher.InvokeAsync(() =>
                     {
                         item.Location = location;
                     });
@@ -1086,11 +1086,10 @@ public partial class MainViewModel : ObservableObject
         _thumbnailCts = new CancellationTokenSource();
         var ct = _thumbnailCts.Token;
 
-        // Esperar un tick perquè la UI es refresqui
         await Task.Yield();
 
         var photosCopy = Photos.Where(p => p.IsLocal && p.Thumbnail == null).ToList();
-        var batchSize = 4;
+        var batchSize = 12; // 12 en paral·lel (SSD modern ho suporta fàcilment)
 
         try
         {
@@ -1098,25 +1097,31 @@ public partial class MainViewModel : ObservableObject
             {
                 ct.ThrowIfCancellationRequested();
 
-                var batch = photosCopy.Skip(i).Take(batchSize);
+                var batch = photosCopy.Skip(i).Take(batchSize).ToList();
+
+                // Carregar tots els thumbnails del batch al background (sense bloquejar UI)
                 var tasks = batch.Select(async photo =>
                 {
-                    try
-                    {
-                        var thumb = await _thumbnailCache.GetThumbnailAsync(photo.FullPath, ct);
-                        if (thumb != null && !ct.IsCancellationRequested)
-                        {
-                            Application.Current?.Dispatcher.Invoke(() =>
-                            {
-                                photo.Thumbnail = thumb;
-                            });
-                        }
-                    }
+                    try { return await _thumbnailCache.GetThumbnailAsync(photo.FullPath, ct); }
                     catch (OperationCanceledException) { throw; }
-                    catch { /* thumbnail individual fallat, continuar */ }
-                });
+                    catch { return null; }
+                }).ToList();
 
-                await Task.WhenAll(tasks);
+                var results = await Task.WhenAll(tasks);
+
+                // Actualitzar la UI d'un cop (1 sola crida Dispatcher)
+                if (!ct.IsCancellationRequested)
+                {
+                    var op = Application.Current?.Dispatcher.InvokeAsync(() =>
+                    {
+                        for (var j = 0; j < batch.Count; j++)
+                        {
+                            if (results[j] != null)
+                                batch[j].Thumbnail = results[j];
+                        }
+                    });
+                    if (op != null) await op;
+                }
             }
         }
         catch (OperationCanceledException) { }

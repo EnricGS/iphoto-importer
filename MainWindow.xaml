@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:iPhotoImporter.ViewModels"
         xmlns:conv="clr-namespace:iPhotoImporter.Converters"
+        xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         Title="iPhoto Manager"
         Height="800" Width="1200"
         MinHeight="600" MinWidth="900"
@@ -640,27 +641,47 @@
                 <!-- Graella de miniatures amb canvas overlay per selecció amb arrossegament -->
                 <Grid Grid.Row="2"
                       Visibility="{Binding IsTimelineMode, Converter={StaticResource InvBoolToVis}}">
-                <ScrollViewer x:Name="ThumbnailScrollViewer"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              Background="{StaticResource BgBase}"
-                              MouseRightButtonDown="ThumbnailArea_MouseRightButtonDown"
-                              PreviewMouseLeftButtonDown="ThumbnailArea_PreviewMouseLeftButtonDown"
-                              PreviewMouseMove="ThumbnailArea_PreviewMouseMove"
-                              PreviewMouseLeftButtonUp="ThumbnailArea_PreviewMouseLeftButtonUp">
-                    <ItemsControl ItemsSource="{Binding Photos}"
-                                  x:Name="PhotoGrid"
-                                  VirtualizingPanel.IsVirtualizing="True"
-                                  VirtualizingPanel.VirtualizationMode="Recycling"
-                                  VirtualizingPanel.ScrollUnit="Pixel"
-                                  Margin="8,8,8,8">
-                        <ItemsControl.ItemsPanel>
+                    <ListBox ItemsSource="{Binding Photos}"
+                             MouseRightButtonDown="ThumbnailArea_MouseRightButtonDown"
+                             PreviewMouseLeftButtonDown="ThumbnailArea_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="ThumbnailArea_PreviewMouseMove"
+                             PreviewMouseLeftButtonUp="ThumbnailArea_PreviewMouseLeftButtonUp"
+                             x:Name="PhotoGrid"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             VirtualizingPanel.ScrollUnit="Pixel"
+                             VirtualizingPanel.CacheLength="2"
+                             VirtualizingPanel.CacheLengthUnit="Page"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                             Background="Transparent" BorderThickness="0"
+                             Margin="8,8,8,8"
+                             IsHitTestVisible="True"
+                             Focusable="False">
+                        <!-- Desactivar selecció visual nativa del ListBox -->
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <WrapPanel/>
+                                <vwp:VirtualizingWrapPanel SpacingMode="Uniform" Orientation="Horizontal"/>
                             </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
+                        </ListBox.ItemsPanel>
 
-                        <ItemsControl.ItemTemplate>
+                        <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Border x:Name="ThumbBorder"
                                         Width="{Binding DataContext.ThumbnailSize, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -759,9 +780,8 @@
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                 <!-- Canvas overlay per al rectangle de selecció (rubber band) -->
                 <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False">
@@ -774,14 +794,38 @@
                 </Canvas>
                 </Grid>
 
-                <!-- Vista Timeline (agrupada per data) -->
-                <ScrollViewer Grid.Row="2" Panel.ZIndex="1"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              Background="{StaticResource BgBase}"
-                              Visibility="{Binding IsTimelineMode, Converter={StaticResource BoolToVis}}">
-                    <ItemsControl ItemsSource="{Binding GroupedPhotos}" Margin="8">
-                        <ItemsControl.ItemTemplate>
+                <!-- Vista Timeline (agrupada per data, virtualitzada) -->
+                <ListBox Grid.Row="2" Panel.ZIndex="1"
+                         ItemsSource="{Binding GroupedPhotos}"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel"
+                         VirtualizingPanel.CacheLength="1"
+                         VirtualizingPanel.CacheLengthUnit="Page"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         Background="{StaticResource BgBase}"
+                         BorderThickness="0"
+                         Focusable="False"
+                         Margin="8"
+                         Visibility="{Binding IsTimelineMode, Converter={StaticResource BoolToVis}}">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Margin="0,0,0,12">
                                     <!-- Header del grup (clicable per col·lapsar) -->
@@ -881,9 +925,8 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                 <!-- Missatge benvinguda quan no hi ha fotos -->
                 <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"

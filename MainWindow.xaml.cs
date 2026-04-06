@@ -35,6 +35,17 @@ public partial class MainWindow : Window
     private PhotoItem? _thumbDragItem;
     private FrameworkElement? _thumbDragElement;
 
+    private ScrollViewer? GetGridScrollViewer()
+    {
+        if (VisualTreeHelper.GetChildrenCount(PhotoGrid) > 0)
+        {
+            var border = VisualTreeHelper.GetChild(PhotoGrid, 0);
+            if (border is Decorator decorator && decorator.Child is ScrollViewer sv)
+                return sv;
+        }
+        return null;
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -71,14 +82,14 @@ public partial class MainWindow : Window
         {
             if (_viewModel.IsOverlayViewerVisible)
             {
-                _savedScrollOffset = ThumbnailScrollViewer.VerticalOffset;
+                _savedScrollOffset = GetGridScrollViewer()?.VerticalOffset ?? 0;
             }
             else
             {
                 // Restaurar scroll al tancar l'overlay
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    ThumbnailScrollViewer.ScrollToVerticalOffset(_savedScrollOffset);
+                    GetGridScrollViewer()?.ScrollToVerticalOffset(_savedScrollOffset);
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
         }
@@ -555,7 +566,7 @@ public partial class MainWindow : Window
                 if (hit is Border || hit is Image || hit is CheckBox || hit is TextBlock)
                     return true;
             }
-            if (hit == ThumbnailScrollViewer) break;
+            if (hit == PhotoGrid) break;
             hit = VisualTreeHelper.GetParent(hit);
         }
         return false;
@@ -598,7 +609,7 @@ public partial class MainWindow : Window
         SelectionRectangle.Visibility = Visibility.Visible;
 
         // Capturar el ratolí al ScrollViewer
-        ThumbnailScrollViewer.CaptureMouse();
+        PhotoGrid.CaptureMouse();
         e.Handled = true;
     }
 
@@ -630,7 +641,7 @@ public partial class MainWindow : Window
         if (!_isRubberBandActive) return;
 
         _isRubberBandActive = false;
-        ThumbnailScrollViewer.ReleaseMouseCapture();
+        PhotoGrid.ReleaseMouseCapture();
         SelectionRectangle.Visibility = Visibility.Collapsed;
 
         // Calcular el rectangle de selecció en coordenades del canvas
