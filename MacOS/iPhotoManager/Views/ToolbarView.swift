@@ -195,9 +195,25 @@ struct DiskScanPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
-            Text("Cercar fotos a l'ordinador")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.textPrimary)
+            HStack {
+                Text("Cercar fotos a l'ordinador")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                Spacer()
+
+                Button {
+                    viewModel.cancelDiskScan()
+                    viewModel.diskScanResults = []
+                    viewModel.showScanResults = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("Tancar")
+            }
 
             // Scope toggle
             HStack(spacing: 0) {

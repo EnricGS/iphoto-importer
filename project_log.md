@@ -1,5 +1,127 @@
 # iPhotoManager — Project Log
 
+## 2026-04-11 — macOS: 5 bugs d'UX durant neteja d'arxivadors + fix crash vídeo
+
+Sessió centrada a resoldre 5 bugs reportats durant l'ús real netejant arxivadors de fotos. Totes les solucions estan a la versió macOS; **cal comprovar si afecten també la versió Windows**.
+
+### Bug 1 — Crash al reproduir vídeo al visor
+
+**Símptoma:** Clicar qualsevol vídeo (fins i tot local, gravat amb iPhone) al visor crashava l'app amb `SIGABRT`.
+
+**Diagnòstic:** Els crash logs de `~/Library/Logs/DiagnosticReports/` mostraven la mateixa stack repetidament:
+
+```
+swift::fatalError
+getSuperclassMetadata
+_swift_initClassMetadataImpl
+_AVKit_SwiftUI __swift_instantiateGenericMetadata
+```
+
+Això és un bug del runtime Swift a macOS 26.4 amb la metadata generica del tipus `VideoPlayer` de SwiftUI (framework `_AVKit_SwiftUI`). Afecta qualsevol inicialització de `VideoPlayer<...>` en aquesta versió del sistema.
+
+**Solució:** Substituir el `VideoPlayer` de SwiftUI per `AVPlayerView` d'AppKit embolcallat amb `NSViewRepresentable`. Això evita completament el camí de metadata generica problemàtic.
+
+`Views/VideoPlayerView.swift` es reescriu amb:
+- `AVPlayerNSView: NSViewRepresentable` — wrapper d'`AVPlayerView` amb `controlsStyle = .inline`, `showsFullScreenToggleButton = true`, `videoGravity = .resizeAspect`.
+- Coordinator amb `NSKeyValueObservation` a `playerItem.status` per detectar `.failed` i mostrar overlay d'error ("No es pot reproduir el vídeo") en lloc de crashar si el codec no és suportat.
+- `teardown()` al dismantle per invalidar l'observador i alliberar el player.
+
+**Mitigacions addicionals aplicades (defensives):**
+
+- `FileService.getVideoRotation()` canviat per usar `FileHandle.read(upToCount: 262144)` en lloc de `Data(contentsOf: url, options: [.mappedIfSafe])`. Evita mapar fitxers de vídeo de diversos GB que podrien causar crashos o congelar la UI. Llegeix només els primers 256KB on hi ha el tkhd box.
+- La crida a `getVideoRotation` des de `loadViewerImage` s'ha mogut a `Task.detached(priority: .utility)` perquè era síncrona al `MainActor` i bloquejava la UI en obrir vídeos grans.
+
+### Bug 2 — Thumbnails pixelats en ampliar el slider
+
+**Símptoma:** El slider de la graella permet cel·les de fins a 400pt, però al màxim els thumbnails es veien borrosos i pixelats.
+
+**Diagnòstic:** `ThumbnailCacheService.thumbnailMaxSize = 512` vs cel·les de 400pt que a retina són 800px físics. Thumbnails de 512px s'escalaven 1.56x.
+
+**Solució:** Augmentat `thumbnailMaxSize` de 512 a 1024px. Cobreix 800px retina amb marge. Cache en disc ~4x més gran, acceptable. Per forçar regeneració sense trencar el cache vell, s'ha afegit una constant `cacheVersion = "v2"` i el `getCacheKey()` la prefixa al raw. Les entrades antigues de 512px queden orfes al disc (es poden netejar manualment).
+
+### Bug 3 — Delete molesta + Undo 1 nivell
+
+**Símptoma:** Durant la neteja d'arxivadors grans, `NSAlert` preguntant confirmació a cada eliminació era insuportable. A més no hi havia manera de recuperar si es polsava per error.
+
+**Solució:**
+
+1. **Tret el `NSAlert`** de `deleteSelected()`. La paperera del sistema ja és reversible, la doble confirmació era redundant. **Important:** NO s'ha tret de `deleteSelectedFromDevice()` — aquest delete és al dispositiu iPhone via MTP, irreversible, i la confirmació hi ha de quedar.
+
+2. **Estat d'undo 1 nivell** a `MainViewModel`:
+   ```swift
+   private var lastDeletedItems: [PhotoItem] = []
+   private var lastDeletedTrashPairs: [(originalPath: String, trashURL: URL)] = []
+   var canUndoDelete: Bool { !lastDeletedItems.isEmpty }
+   ```
+
+3. **`FileService.deleteFiles()`** ara retorna `(deleted: Int, trashedPairs: [(originalPath, trashURL)])`. Usa `trashItem(at:resultingItemURL:)` amb `inout NSURL?` per capturar la URL exacta dins `~/.Trash/`. Nou mètode `restoreFromTrash(trashURL:originalPath:)` que fa `moveItem` inversa (amb check que l'original path no estigui ocupat).
+
+4. **`undoLastDelete()`**: itera els `trashedPairs`, restaura cada fitxer, re-insereix el `PhotoItem` a `allPhotos`, recalcula `photoCount/videoCount` i crida `applyFilter()`. Buida l'estat d'undo immediatament per evitar dobles execucions.
+
+5. **`dismissUndoToast()`** buida l'estat sense restaurar (el botó X del toast).
+
+6. **Shortcut Cmd+Z** a `ContentView.handleKeyPress` dins del switch de modifiers command. Consistent amb la resta de shortcuts del grid.
+
+7. **Toast flotant d'undo** al `ZStack` principal de `ContentView` (per sobre de tot, inclòs overlay viewer i import modal):
+   - Fons negre semitransparent, icona paperera, missatge "N fitxer(s) moguts a la paperera", botó **Desfer** destacat amb color `accent`, botó X per descartar.
+   - `.transition(.move(edge: .bottom).combined(with: .opacity))` amb animació de 0.2s.
+   - Visible sempre que `canUndoDelete == true`, independentment de si estàs al visor o no.
+   - Un botó "Desfer" addicional a la `StatusBarView` com a redundància al bottom.
+
+**Per què un toast i no només el botó de status bar:** la status bar queda darrere del `ViewerOverlayView` (que és un layer superior del ZStack). Quan elimines des del visor overlay, el botó de status bar no es veu. El toast, en canvi, és part del ZStack al mateix nivell que l'overlay, així que sempre és visible.
+
+### Bug 5 — Visor: eliminar foto no avançava a la següent
+
+**Símptoma:** Quan estaves al visor mirant una foto i l'eliminaves, el visor no avançava automàticament a la següent — o es quedava apuntant a l'índex antic (foto equivocada) o a out-of-bounds.
+
+**Solució:** Al final de `deleteSelected()` i `deleteSelectedFromDevice()`, abans d'actualitzar `statusMessage`:
+
+```swift
+if wasViewingDeletedItem {
+    if photos.isEmpty {
+        closeViewer()
+    } else {
+        let newIndex = min(previousViewerIndex, photos.count - 1)
+        navigateViewer(to: newIndex)
+    }
+}
+```
+
+`wasViewingDeletedItem` i `previousViewerIndex` es capturen abans del bucle de remove. `navigateViewer(to:)` ja fa tot el necessari (reset zoom, load image, scroll-to en split mode).
+
+### Bug 6 — DiskScanPopover sense sortida abans d'escanejar
+
+**Símptoma:** El sheet de "Cercar fotos a l'ordinador" no tenia manera de sortir sense fer res — només hi havia el botó "Cercar" (que iniciava el scan) i, un cop escanejant, el botó "Aturar" que cancel·lava la tasca però no tancava el sheet.
+
+**Solució:** Botó X (`xmark.circle.fill`) afegit al `HStack` del header de `DiskScanPopover`, sempre visible. En clicar:
+```swift
+viewModel.cancelDiskScan()    // cancel·la tasca si n'hi ha
+viewModel.diskScanResults = []  // buida resultats
+viewModel.showScanResults = false  // tanca sheet
+```
+
+### Fitxers afectats
+
+- `ViewModels/MainViewModel.swift` — bugs 1 (getVideoRotation background), 3 (undo state, `undoLastDelete`, `dismissUndoToast`, removed NSAlert), 5 (viewerIndex advance després de delete)
+- `Services/FileService.swift` — bug 1 (`getVideoRotation` amb FileHandle), 3 (`deleteFiles` retorna trashedPairs, `restoreFromTrash`)
+- `Services/ThumbnailCacheService.swift` — bug 2 (`thumbnailMaxSize = 1024`, `cacheVersion = "v2"`)
+- `Views/VideoPlayerView.swift` — bug 1 (reescrit amb `NSViewRepresentable` + `AVPlayerView`)
+- `Views/ContentView.swift` — bug 3 (Cmd+Z shortcut, toast flotant)
+- `Views/StatusBarView.swift` — bug 3 (botó "Desfer" a la status bar)
+- `Views/ToolbarView.swift` — bug 6 (botó X al header del DiskScanPopover)
+
+### Pendent (bugs que poden afectar Windows també)
+
+Tots els fixes estan fets només a macOS. Cal comprovar cas a cas a Windows:
+- Crash al reproduir vídeo HEVC (pot afectar `MediaElement` / `Windows.Media.Playback`)
+- Thumbnails pixelats (cache també és 512px a `ThumbnailCacheService.cs`)
+- Delete amb confirmació MessageBox (verificar si molesta igual)
+- Undo 1 nivell (no implementat — afegir Ctrl+Z)
+- Viewer eliminar foto → avançar següent
+- DiskScan modal amb sortida sense escanejar
+
+---
+
 ## 2026-04-06 — Windows al dia amb macOS: funcionalitats, UI i importació iPhone
 
 ### Funcionalitats portades de macOS a Windows

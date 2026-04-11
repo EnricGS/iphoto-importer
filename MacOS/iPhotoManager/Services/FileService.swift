@@ -279,13 +279,16 @@ actor FileService {
     /// transformation matrix in MP4/MOV container structure.
     /// Returns degrees (0, 90, 180, 270).
     nonisolated static func getVideoRotation(filePath: String) -> Int {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath),
-                                   options: [.mappedIfSafe]) else {
+        // Llegir només els primers 256KB amb FileHandle — evita mapar vídeos enormes
+        // que podria causar crash o bloqueig amb fitxers de diversos GB.
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: filePath)) else {
             return 0
         }
+        defer { try? handle.close() }
 
-        let bufferSize = min(data.count, 262144) // Read up to 256KB
-        let buffer = data.prefix(bufferSize)
+        guard let buffer = try? handle.read(upToCount: 262144), !buffer.isEmpty else {
+            return 0
+        }
         return findTkhdRotation(in: buffer)
     }
 
@@ -536,22 +539,39 @@ actor FileService {
         return moved
     }
 
-    /// Moves files to Trash. Returns the number of files deleted.
+    /// Moves files to Trash. Returns the number of files deleted and an array of
+    /// (originalPath, trashURL) pairs to allow undoing the operation.
     func deleteFiles(
         _ files: [PhotoItem],
         progress: @escaping @Sendable (Int, Int, String) -> Void
-    ) async throws -> Int {
+    ) async throws -> (deleted: Int, trashedPairs: [(originalPath: String, trashURL: URL)]) {
         let fm = FileManager.default
         var deleted = 0
+        var trashedPairs: [(originalPath: String, trashURL: URL)] = []
 
         for (index, file) in files.enumerated() {
             progress(index + 1, files.count, file.fileName)
 
             let fileURL = URL(fileURLWithPath: file.fullPath)
-            try fm.trashItem(at: fileURL, resultingItemURL: nil)
+            var resultingURL: NSURL?
+            try fm.trashItem(at: fileURL, resultingItemURL: &resultingURL)
+            if let trashURL = resultingURL as URL? {
+                trashedPairs.append((originalPath: file.fullPath, trashURL: trashURL))
+            }
             deleted += 1
         }
-        return deleted
+        return (deleted, trashedPairs)
+    }
+
+    /// Restaura un fitxer des de la paperera a la seva ubicació original.
+    /// Llença error si ja existeix un fitxer a l'ubicació original (cas rar per undo immediat).
+    func restoreFromTrash(trashURL: URL, originalPath: String) throws {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: originalPath) else {
+            throw FileServiceError.folderNotFound("Ja existeix un fitxer a \(originalPath)")
+        }
+        let destURL = URL(fileURLWithPath: originalPath)
+        try fm.moveItem(at: trashURL, to: destURL)
     }
 
     // MARK: - Helpers

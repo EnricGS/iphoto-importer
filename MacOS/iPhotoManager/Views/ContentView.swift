@@ -41,7 +41,60 @@ struct ContentView: View {
                 ImportPanelView(viewModel: viewModel)
                     .transition(.opacity)
             }
+
+            // Undo toast (flotant a sobre de tot, inclòs el visor overlay)
+            if viewModel.canUndoDelete {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 12) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.8))
+                        Text(viewModel.statusMessage)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+
+                        Button {
+                            Task { await viewModel.undoLastDelete() }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.system(size: 11))
+                                Text("Desfer")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.accent)
+                            .foregroundStyle(Color.textOnAccent)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Desfer (Cmd+Z)")
+
+                        Button {
+                            viewModel.dismissUndoToast()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Tancar")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.black.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+                    .padding(.bottom, 40)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(true)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.canUndoDelete)
         .animation(.easeInOut(duration: 0.2), value: viewModel.isOverlayViewerVisible)
         .animation(.easeInOut(duration: 0.2), value: viewModel.isImportPanelOpen)
         .animation(.easeInOut(duration: 0.15), value: viewModel.showActionBar)
@@ -155,6 +208,9 @@ struct ContentView: View {
                 return .handled
             case "d":
                 viewModel.deselectAll()
+                return .handled
+            case "z":
+                Task { await viewModel.undoLastDelete() }
                 return .handled
             default:
                 break

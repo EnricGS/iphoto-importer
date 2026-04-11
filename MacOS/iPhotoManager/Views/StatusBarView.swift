@@ -29,6 +29,27 @@ struct StatusBarView: View {
 
             Spacer()
 
+            // Undo button — visible quan hi ha una eliminació recent per desfer
+            if viewModel.canUndoDelete {
+                Button {
+                    Task { await viewModel.undoLastDelete() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 11))
+                        Text("Desfer")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.accentSubtle)
+                    .foregroundStyle(Color.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help("Desfer l'última eliminació (Cmd+Z)")
+            }
+
             // Copy progress bar
             if viewModel.isCopying {
                 ProgressView(value: viewModel.copyProgress, total: 100)

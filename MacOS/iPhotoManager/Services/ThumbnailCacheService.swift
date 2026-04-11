@@ -9,8 +9,9 @@ actor ThumbnailCacheService {
 
     // MARK: - Configuration
 
-    let thumbnailMaxSize: Int = 512
+    let thumbnailMaxSize: Int = 1024
     let jpegQuality: CGFloat = 0.85
+    private let cacheVersion: String = "v2"
 
     // MARK: - State
 
@@ -81,15 +82,16 @@ actor ThumbnailCacheService {
         try? jpegData.write(to: url, options: .atomic)
     }
 
-    /// Generates a cache key based on the file path, size and modification date.
+    /// Generates a cache key based on the file path, size, modification date and cache version.
+    /// The version prefix forces regeneration when the thumbnail resolution changes.
     private func getCacheKey(for filePath: String) -> String {
         let fm = FileManager.default
-        var raw = filePath
+        var raw = "\(cacheVersion)|\(filePath)"
 
         if let attrs = try? fm.attributesOfItem(atPath: filePath) {
             let size = attrs[.size] as? Int64 ?? 0
             let modDate = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-            raw = "\(filePath)|\(size)|\(modDate)"
+            raw = "\(cacheVersion)|\(filePath)|\(size)|\(modDate)"
         }
 
         let digest = SHA256.hash(data: Data(raw.utf8))

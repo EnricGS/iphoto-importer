@@ -70,6 +70,11 @@ final class MainViewModel {
     var thumbnailSize: CGFloat = 150
     var lastClickedIndex: Int?
 
+    /// Estat d'undo per a l'última operació d'eliminació (1 nivell)
+    private var lastDeletedItems: [PhotoItem] = []
+    private var lastDeletedTrashPairs: [(originalPath: String, trashURL: URL)] = []
+    var canUndoDelete: Bool { !lastDeletedItems.isEmpty }
+
     /// Filter toggles (both active by default, like Windows)
     var filterPhotos: Bool = true {
         didSet {
@@ -980,14 +985,23 @@ final class MainViewModel {
 
         if item.isVideo {
             isViewingVideo = true
-            // Read rotation if not yet set
-            if item.videoRotation == 0 {
-                item.videoRotation = FileService.getVideoRotation(filePath: item.fullPath)
-            }
             viewerVideoRotation = item.videoRotation
             viewerVideoURL = URL(fileURLWithPath: item.fullPath)
             viewerImage = item.thumbnail
             updateViewerInfo(for: item)
+
+            // Llegir rotació en background per no bloquejar MainActor amb fitxers grans
+            if item.videoRotation == 0 {
+                let path = item.fullPath
+                Task.detached(priority: .utility) { [weak self] in
+                    let rotation = FileService.getVideoRotation(filePath: path)
+                    await MainActor.run { [weak self] in
+                        guard let self, self.viewerCurrentItem == item else { return }
+                        item.videoRotation = rotation
+                        self.viewerVideoRotation = rotation
+                    }
+                }
+            }
             return
         }
 
@@ -1403,26 +1417,20 @@ final class MainViewModel {
     func deleteSelected() async {
         guard !selectedPhotos.isEmpty else { return }
 
-        let alert = NSAlert()
-        alert.messageText = "Confirmar eliminació"
-        alert.informativeText = "Moure \(selectedPhotos.count) fitxer(s) a la paperera?\n\nEs poden restaurar si cal."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Moure a la paperera")
-        alert.addButton(withTitle: "Cancel·lar")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
         isLoading = true
         hasError = false
 
         let filesToDelete = Array(selectedPhotos)
 
         do {
-            let deleted = try await fileService.deleteFiles(filesToDelete) { [weak self] current, total, fileName in
+            let result = try await fileService.deleteFiles(filesToDelete) { [weak self] current, total, fileName in
                 Task { @MainActor [weak self] in
                     self?.statusMessage = "Eliminant \(current)/\(total): \(fileName)"
                 }
             }
+
+            let wasViewingDeletedItem = viewerCurrentItem.map { filesToDelete.contains($0) } ?? false
+            let previousViewerIndex = viewerIndex
 
             for item in filesToDelete {
                 allPhotos.removeAll { $0 == item }
@@ -1433,10 +1441,77 @@ final class MainViewModel {
             photoCount = allPhotos.filter { !$0.isVideo }.count
             videoCount = allPhotos.filter { $0.isVideo }.count
 
-            statusMessage = "\(deleted) fitxer(s) moguts a la paperera."
+            // Guardar estat per undo (1 nivell — sobreescriu l'anterior)
+            lastDeletedItems = filesToDelete
+            lastDeletedTrashPairs = result.trashedPairs
+
+            // Si el visor estava obert, avançar a la següent foto (o tancar si no en queden)
+            if wasViewingDeletedItem {
+                if photos.isEmpty {
+                    closeViewer()
+                } else {
+                    let newIndex = min(previousViewerIndex, photos.count - 1)
+                    navigateViewer(to: newIndex)
+                }
+            }
+
+            statusMessage = "\(result.deleted) fitxer(s) moguts a la paperera — Cmd+Z per desfer"
         } catch {
             hasError = true
             statusMessage = "Error eliminant: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+
+    /// Tanca el toast d'undo sense restaurar res.
+    func dismissUndoToast() {
+        lastDeletedItems = []
+        lastDeletedTrashPairs = []
+    }
+
+    /// Desfà l'última eliminació: restaura els fitxers de la paperera a la ubicació original
+    /// i els re-insereix a la llista. Només 1 nivell.
+    func undoLastDelete() async {
+        guard !lastDeletedItems.isEmpty else {
+            statusMessage = "No hi ha res per desfer."
+            return
+        }
+
+        let items = lastDeletedItems
+        let pairs = lastDeletedTrashPairs
+
+        // Buidar estat d'undo immediatament per evitar dobles execucions
+        lastDeletedItems = []
+        lastDeletedTrashPairs = []
+
+        isLoading = true
+        hasError = false
+
+        var restored = 0
+        var failed = 0
+
+        for pair in pairs {
+            do {
+                try await fileService.restoreFromTrash(trashURL: pair.trashURL, originalPath: pair.originalPath)
+                if let item = items.first(where: { $0.fullPath == pair.originalPath }) {
+                    allPhotos.append(item)
+                    restored += 1
+                }
+            } catch {
+                failed += 1
+            }
+        }
+
+        photoCount = allPhotos.filter { !$0.isVideo }.count
+        videoCount = allPhotos.filter { $0.isVideo }.count
+        applyFilter()
+
+        if failed > 0 {
+            hasError = true
+            statusMessage = "Restaurats \(restored), errors \(failed)."
+        } else {
+            statusMessage = "Desfet: \(restored) fitxer(s) restaurats."
         }
 
         isLoading = false
@@ -1731,6 +1806,9 @@ final class MainViewModel {
 
         await deviceService.deleteFiles(files)
 
+        let wasViewingDeletedItem = viewerCurrentItem.map { selected.contains($0) } ?? false
+        let previousViewerIndex = viewerIndex
+
         // Remove deleted items from the master list and re-apply filter (which re-sorts)
         for item in selected {
             allPhotos.removeAll { $0 == item }
@@ -1739,6 +1817,17 @@ final class MainViewModel {
         photoCount = allPhotos.filter { !$0.isVideo }.count
         videoCount = allPhotos.filter { $0.isVideo }.count
         applyFilter()
+
+        // Si el visor estava obert, avançar a la següent foto (o tancar si no en queden)
+        if wasViewingDeletedItem {
+            if photos.isEmpty {
+                closeViewer()
+            } else {
+                let newIndex = min(previousViewerIndex, photos.count - 1)
+                navigateViewer(to: newIndex)
+            }
+        }
+
         statusMessage = "\(files.count) fitxer(s) eliminat(s). \(allPhotos.count) restants al dispositiu."
     }
 
