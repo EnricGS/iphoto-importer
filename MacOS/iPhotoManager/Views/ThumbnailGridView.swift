@@ -454,25 +454,22 @@ struct ThumbnailGridView: View {
                 )
             }
         )
-        .onDrag {
-            guard photo.isLocal else { return NSItemProvider() }
-            let urls: [URL]
-            if photo.isSelected {
-                urls = viewModel.selectedFileURLs()
-            } else {
-                urls = [URL(fileURLWithPath: photo.fullPath)]
+        .overlay(alignment: .topLeading) {
+            if photo.isLocal {
+                MultiDragSourceView(
+                    urlsProvider: {
+                        if photo.isSelected {
+                            let selected = viewModel.selectedFileURLs()
+                            return selected.isEmpty ? [URL(fileURLWithPath: photo.fullPath)] : selected
+                        }
+                        return [URL(fileURLWithPath: photo.fullPath)]
+                    },
+                    thumbnailProvider: { photo.thumbnail },
+                    onClick: { viewModel.handleGridClick(item: photo) }
+                )
+                .padding(.leading, 32)
+                .padding(.top, 32)
             }
-            let provider = NSItemProvider()
-            for url in urls {
-                provider.registerFileRepresentation(
-                    forTypeIdentifier: "public.file-url",
-                    visibility: .all
-                ) { completion in
-                    completion(url, true, nil)
-                    return nil
-                }
-            }
-            return provider
         }
     }
 
@@ -813,5 +810,92 @@ class SectionHeaderTapNSView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         // Consume — don't start rubber band
+    }
+}
+
+// MARK: - Multi-item Drag Source (permet arrossegar N fotos a Finder/Mail)
+
+struct MultiDragSourceView: NSViewRepresentable {
+    let urlsProvider: () -> [URL]
+    let thumbnailProvider: () -> NSImage?
+    let onClick: () -> Void
+
+    func makeNSView(context: Context) -> MultiDragNSView {
+        let view = MultiDragNSView()
+        view.urlsProvider = urlsProvider
+        view.thumbnailProvider = thumbnailProvider
+        view.onClick = onClick
+        return view
+    }
+
+    func updateNSView(_ nsView: MultiDragNSView, context: Context) {
+        nsView.urlsProvider = urlsProvider
+        nsView.thumbnailProvider = thumbnailProvider
+        nsView.onClick = onClick
+    }
+}
+
+final class MultiDragNSView: NSView, NSDraggingSource {
+    var urlsProvider: (() -> [URL])?
+    var thumbnailProvider: (() -> NSImage?)?
+    var onClick: (() -> Void)?
+
+    private var mouseDownPoint: NSPoint?
+    private var didStartDrag = false
+    private static let dragThreshold: CGFloat = 4
+
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func draggingSession(_ session: NSDraggingSession,
+                         sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        // .copy perquè Finder arrossegui una còpia; si volem moure, usar .generic
+        return [.copy]
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = convert(event.locationInWindow, from: nil)
+        didStartDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = mouseDownPoint, !didStartDrag else { return }
+        let current = convert(event.locationInWindow, from: nil)
+        let dx = current.x - start.x
+        let dy = current.y - start.y
+        guard (dx * dx + dy * dy) >= (Self.dragThreshold * Self.dragThreshold) else { return }
+
+        let urls = (urlsProvider?() ?? []).filter {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+        guard !urls.isEmpty else { return }
+
+        let preview = thumbnailProvider?() ?? NSImage(size: NSSize(width: 64, height: 64))
+        let itemSize = NSSize(width: 80, height: 80)
+
+        let items: [NSDraggingItem] = urls.enumerated().map { idx, url in
+            let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+            let stackOffset = CGFloat(min(idx, 4)) * 5
+            let frame = NSRect(
+                x: start.x - itemSize.width / 2 + stackOffset,
+                y: start.y - itemSize.height / 2 - stackOffset,
+                width: itemSize.width,
+                height: itemSize.height
+            )
+            item.setDraggingFrame(frame, contents: preview)
+            return item
+        }
+
+        didStartDrag = true
+        beginDraggingSession(with: items, event: event, source: self)
+        mouseDownPoint = nil
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !didStartDrag, mouseDownPoint != nil {
+            onClick?()
+        }
+        mouseDownPoint = nil
+        didStartDrag = false
     }
 }
