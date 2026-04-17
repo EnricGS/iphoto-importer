@@ -844,13 +844,28 @@ final class MultiDragNSView: NSView, NSDraggingSource {
     private var didStartDrag = false
     private static let dragThreshold: CGFloat = 4
 
-    override var acceptsFirstResponder: Bool { true }
+    // No volem ser first responder (interfereix amb la focus chain de SwiftUI).
+    // Només volem rebre events de ratolí.
+    override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         // .copy perquè Finder arrossegui una còpia; si volem moure, usar .generic
         return [.copy]
+    }
+
+    // Quan la drag session acaba, AppKit no envia mouseUp al NSView original.
+    // Cal resetejar estat manualment i retornar el first responder a la finestra
+    // perquè la UI torni a respondre clics.
+    func draggingSession(_ session: NSDraggingSession,
+                         endedAt screenPoint: NSPoint,
+                         operation: NSDragOperation) {
+        mouseDownPoint = nil
+        didStartDrag = false
+        if let window = self.window, window.firstResponder === self {
+            window.makeFirstResponder(nil)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
