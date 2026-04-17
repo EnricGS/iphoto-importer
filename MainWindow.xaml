@@ -11,7 +11,8 @@
         WindowState="Maximized"
         Background="{StaticResource BgBase}"
         FontFamily="Segoe UI Variable, Segoe UI"
-        KeyDown="Window_KeyDown">
+        KeyDown="Window_KeyDown"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
         <!-- Converters -->
@@ -265,6 +266,11 @@
         </Style>
 
     </Window.Resources>
+
+    <Window.InputBindings>
+        <!-- Ctrl+Z desfà el darrer delete (restaura de la paperera) -->
+        <KeyBinding Modifiers="Control" Key="Z" Command="{Binding UndoLastDeleteCommand}"/>
+    </Window.InputBindings>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -1553,6 +1559,38 @@
                 </DockPanel>
             </Border>
         </Grid>
+
+        <!-- ==================== TOAST UNDO DELETE ==================== -->
+        <!-- Flotant per sobre de tot (inclòs el visor overlay). Es col·loca al Grid arrel
+             amb Grid.Row="1" i Panel.ZIndex alt perquè mai quedi tapat per l'overlay. -->
+        <Border Grid.Row="1" Panel.ZIndex="1000"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,0,24" Padding="14,10"
+                CornerRadius="10"
+                Background="#E6000000"
+                BorderBrush="{StaticResource BorderMedium}" BorderThickness="1"
+                Visibility="{Binding CanUndoDelete, Converter={StaticResource BoolToVis}}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                           FontSize="14" Foreground="{StaticResource TextPrimary}"
+                           VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock Text="{Binding UndoToastMessage}" FontSize="12"
+                           Foreground="{StaticResource TextPrimary}"
+                           VerticalAlignment="Center" Margin="0,0,14,0"/>
+                <Button Style="{StaticResource BtnIcon}" Padding="10,5" Margin="0,0,6,0"
+                        Command="{Binding UndoLastDeleteCommand}"
+                        ToolTip="Desfer (Ctrl+Z)">
+                    <TextBlock Text="Desfer" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{StaticResource Accent}"/>
+                </Button>
+                <Button Style="{StaticResource BtnIcon}" Padding="6,5"
+                        Command="{Binding DismissUndoToastCommand}"
+                        ToolTip="Descartar">
+                    <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                               FontSize="11" Foreground="{StaticResource TextDim}"/>
+                </Button>
+            </StackPanel>
+        </Border>
 
         <!-- ==================== BARRA D'ESTAT ==================== -->
         <Border Grid.Row="2" Background="{StaticResource BgSurface}" Padding="16,6"

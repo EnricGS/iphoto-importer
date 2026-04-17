@@ -1,5 +1,83 @@
 # iPhotoManager — Project Log
 
+## 2026-04-17 — Windows al dia: port dels 5 bugs d'UX de macOS
+
+Es porten a la versió Windows WPF els fixes que la sessió del 2026-04-11 havia aplicat només a macOS. El bug 1 (crash Swift de `VideoPlayer`) no aplica a Windows, però sí la seva mitigació defensiva sobre `GetVideoRotation`.
+
+### Bug 2 — Thumbnails pixelats al slider màxim
+
+`ThumbnailCacheService.ThumbnailMaxSize` de 512 → 1024. A `GetCacheKey` s'afegeix un prefix `CacheVersion = "v2"` perquè les entrades velles de 512px del cache en disc no s'aprofitin: els hash canvien i se'n generen de nous. Les antigues queden orfes (es poden netejar a mà a `%LocalAppData%\iPhotoImporter\ThumbnailCache`).
+
+### Bug 6 — DiskScan popup sense sortida neta
+
+`ToggleDiskScanPanel` ara, quan tanca el panell, cancel·la el `CancellationTokenSource` de l'scan actiu, buida `DiskScanResults` i neteja `DiskScanStatus`. El botó X del header ja feia aquest toggle, així que no cal canviar el XAML.
+
+### Bug 5 — Visor no avança després d'eliminar
+
+A `DeleteSelectedAsync`, abans del delete es captura `wasViewingDeletedItem = IsViewerOpen && ViewerCurrentItem ∈ filesToDelete` i `previousViewerIndex`. Després del remove:
+
+```csharp
+if (wasViewingDeletedItem) {
+    if (Photos.Count == 0) CloseViewer();
+    else NavigateViewer(Math.Min(previousViewerIndex, Photos.Count - 1));
+}
+```
+
+També es corregeix un pre-existing bug relacionat: el delete eliminava els ítems de `Photos` (vista filtrada) però NO de `_allPhotos` (llista mestra), de manera que en canviar filtres les fotos eliminades "tornaven". Ara es fa `_allPhotos.RemoveAll(toDeleteSet.Contains)` + recàlcul de `PhotoCount/VideoCount`.
+
+### Bug 3 — Delete sense confirmació + Undo 1 nivell + Ctrl+Z
+
+1. **Eliminada la `MessageBox.Show`** de confirmació a `DeleteSelectedAsync`. La paperera del sistema ja és reversible i el toast d'undo cobreix l'error humà. El `MessageBox` de `MoveFiles` (moviment fora de la paperera) es manté — aquell sí és irreversible.
+
+2. **`FileService.RestoreFromRecycleBinAsync(IList<string> originalPaths)`** — restaura fitxers de la paperera via `Shell.Application` (COM). `SHFileOperation` amb `FOF_ALLOWUNDO` no retorna les rutes dins la paperera, per això cal COM. Es llança en un thread STA dedicat. Iteració: `shell.NameSpace(0xA).Items()`, `GetDetailsOf(item, 1)` retorna "Original Location" a Win10+, es compara `originalLocation + name` contra el set demanat, i s'invoca el verb de restaurar. Es cobreixen diversos idiomes: `restore`, `undelete`, `restaurar`, `restablecer`, `wiederherstellen`, `ripristina`, `restaurer` (es tenen en compte possibles mnemònics `&`).
+
+3. **Estat d'undo a `MainViewModel`:**
+   - `_lastDeletedItems: List<PhotoItem>`
+   - `_lastDeletedOriginalPaths: List<string>`
+   - `CanUndoDelete => _lastDeletedItems.Count > 0`
+   - `UndoToastMessage` amb text localitzat ("1 fitxer mogut…" / "N fitxers moguts…")
+
+4. **`UndoLastDeleteCommand`** — buida l'estat d'undo primer (evita doble execució), crida `RestoreFromRecycleBinAsync`, re-insereix a `_allPhotos` els ítems el fitxer dels quals torna a existir, re-ordena per data, recalcula comptadors i crida `ApplyFilter()` per regenerar la vista.
+
+5. **`DismissUndoToastCommand`** — buida l'estat d'undo sense restaurar (botó X del toast).
+
+6. **Drecera Ctrl+Z** — afegida com a `Window.InputBindings`:
+   ```xml
+   <KeyBinding Modifiers="Control" Key="Z" Command="{Binding UndoLastDeleteCommand}"/>
+   ```
+
+7. **Toast flotant** — `Border` amb `Grid.Row="1"` i `Panel.ZIndex="1000"`, centrat a baix, visible mentre `CanUndoDelete = true`. Posat al mateix nivell que el `ViewerOverlay` (que també està a `Grid.Row="1"`) perquè sigui sempre visible, incloent quan s'elimina des del visor overlay. Conté icona paperera, missatge bound a `UndoToastMessage`, botó "Desfer" destacat amb color `Accent` i botó X per descartar.
+
+### Bug 1 — Crash vídeo i mitigació `GetVideoRotation`
+
+El crash del runtime Swift en inicialitzar `VideoPlayer<...>` és específic de macOS 26.4 i no aplica a Windows (usa `MediaElement` nativa). **No cal fix.**
+
+Sí s'aplica la mitigació defensiva a `LoadViewerImage`: llegir la rotació del vídeo síncronament al MainActor (main thread WPF) podia congelar la UI amb vídeos grans. Ara, quan `VideoRotation == 0` i és local, es fa a `Task.Run` i s'aplica al `Dispatcher` quan acaba, verificant primer que `ViewerCurrentItem` segueixi sent el mateix ítem (l'usuari pot haver navegat mentrestant). La lectura de `FileService.GetVideoRotation` ja utilitzava `FileStream.Read(buffer, 0, 262144)` limitat a 256KB, no calia canvi addicional.
+
+### Fix durant proves — Delete al visor no arribava a `Window_KeyDown`
+
+Durant les proves es va descobrir que la tecla `Delete` al visor no disparava el handler `KeyDown` del Window (les fletxes sí). Amb `PreviewKeyDown` (tunneling) tampoc canviava res, de manera que es va afegir logging a disc per inspeccionar events. El log confirmava que Delete mai arribava — en realitat l'usuari estava provant amb una tecla diferent. Un cop verificada la tecla correcta (Supr/Del), el flux funcionava.
+
+Canvis deixats al codi:
+- Handler `Window_PreviewKeyDown` per interceptar Delete al tunneling, per si algun control fill el captura en un futur.
+- `DeleteSelectedAsync` comprova que `SelectedPhotos.Count == 0 && (IsViewerOpen || IsSplitViewerVisible) && ViewerCurrentItem != null` i en aquest cas selecciona automàticament la foto del visor. Això permet que tant la tecla Delete com **el botó de paperera al visor** (que invoca directament `DeleteSelectedCommand`) funcionin sense que l'usuari hagi de marcar checkboxes a la graella.
+
+### Fitxers afectats
+
+- `Services/ThumbnailCacheService.cs` — bug 2 (`ThumbnailMaxSize=1024`, `CacheVersion="v2"` a `GetCacheKey`)
+- `Services/FileService.cs` — bug 3 (`RestoreFromRecycleBinAsync`)
+- `ViewModels/MainViewModel.cs` — bugs 3, 5, 6, 1 (mitigació), fix delete al visor
+- `MainWindow.xaml` — Ctrl+Z `InputBinding`, toast flotant, event `PreviewKeyDown`
+- `MainWindow.xaml.cs` — handler `Window_PreviewKeyDown` per tunneling de Delete
+
+### Notes
+
+- L'undo via `Shell.Application` només funciona si Windows està en un idioma cobert pels verbs. Si no, es pot afegir a `restoreVerbPrefixes`.
+- No hi ha animació al toast (macOS tenia `.transition(.move(.bottom))`). Es podria afegir amb un `Storyboard` si molesta.
+- El delete ara actualitza `_allPhotos`. Si el delete és a `_allPhotos` en mode browse de dispositiu, caldria una revisió — de moment el delete via MTP a iPhone no està implementat, així que no hi ha regressió aquí.
+
+---
+
 ## 2026-04-11 — macOS: 5 bugs d'UX durant neteja d'arxivadors + fix crash vídeo
 
 Sessió centrada a resoldre 5 bugs reportats durant l'ús real netejant arxivadors de fotos. Totes les solucions estan a la versió macOS; **cal comprovar si afecten també la versió Windows**.

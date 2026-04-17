@@ -7,3 +7,4 @@ publish/
 installer_output/
 *.zip
 MacOS/.build/
+dist/

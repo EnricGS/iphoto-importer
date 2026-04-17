@@ -9,15 +9,22 @@ namespace iPhotoImporter.Services;
 
 /// <summary>
 /// Servei de cache de miniatures persistent a disc.
-/// Emmagatzema les miniatures com a JPEG al 85% de qualitat, 512px màxim.
+/// Emmagatzema les miniatures com a JPEG al 85% de qualitat, 1024px màxim.
 /// </summary>
 public class ThumbnailCacheService
 {
     private readonly string _cacheFolder;
     private readonly ConcurrentDictionary<string, BitmapSource?> _memoryCache = new();
 
+    /// <summary>
+    /// Versió del cache. S'inclou a la clau per invalidar entrades vellles
+    /// quan es canvia la mida o el format. Les entrades antigues queden
+    /// orfes al disc (es poden netejar manualment).
+    /// </summary>
+    private const string CacheVersion = "v2";
+
     /// <summary>Mida màxim de la miniatura en píxels</summary>
-    public int ThumbnailMaxSize { get; set; } = 512;
+    public int ThumbnailMaxSize { get; set; } = 1024;
 
     /// <summary>Qualitat JPEG (1-100)</summary>
     public int JpegQuality { get; set; } = 85;
@@ -154,7 +161,7 @@ public class ThumbnailCacheService
     private static string GetCacheKey(string filePath)
     {
         var fileInfo = new FileInfo(filePath);
-        var raw = $"{filePath}|{fileInfo.Length}|{fileInfo.LastWriteTimeUtc.Ticks}";
+        var raw = $"{CacheVersion}|{filePath}|{fileInfo.Length}|{fileInfo.LastWriteTimeUtc.Ticks}";
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(hash)[..32];
     }

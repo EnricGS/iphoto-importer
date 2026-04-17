@@ -134,6 +134,24 @@ public partial class MainWindow : Window
     /// <summary>
     /// Gestiona les tecles de drecera globals.
     /// </summary>
+    /// <summary>
+    /// PreviewKeyDown (tunneling) per Delete: alguns controls del visor (ex. video player)
+    /// capten la tecla Delete abans que bombolli fins a Window_KeyDown. Amb PreviewKeyDown
+    /// l'interceptem al nivell del Window abans que cap fill la pugui absorbir.
+    /// </summary>
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete) return;
+
+        // El command ja gestiona el cas "visor sense selecció" internament.
+        var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
+        if (viewerActive || _viewModel.SelectedPhotosCount > 0)
+        {
+            _viewModel.DeleteSelectedCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
         // Tab i F5: canviar mode split/toggle (sempre disponible)
@@ -196,6 +214,8 @@ public partial class MainWindow : Window
                     VideoPlay_Click(this, e);
                     e.Handled = true;
                     break;
+                // Key.Delete es gestiona a Window_PreviewKeyDown perquè alguns controls
+                // del visor absorbeixen la tecla abans que arribi aquí.
             }
 
             // En mode split, no bloquejar les dreceres de graella (Ctrl+A, etc.)
@@ -218,11 +238,7 @@ public partial class MainWindow : Window
                 _viewModel.DeselectAllCommand.Execute(null);
                 e.Handled = true;
                 break;
-            case Key.Delete:
-                if (_viewModel.SelectedPhotosCount > 0)
-                    _viewModel.DeleteSelectedCommand.Execute(null);
-                e.Handled = true;
-                break;
+            // Key.Delete: veure Window_PreviewKeyDown
         }
     }
 

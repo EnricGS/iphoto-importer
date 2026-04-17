@@ -372,6 +372,100 @@ public class FileService
     }
 
     /// <summary>
+    /// Intenta restaurar fitxers de la paperera de reciclatge comparant per ruta original.
+    /// Usa Shell.Application (COM) perquè SHFileOperation no retorna les rutes dins la paperera.
+    /// Retorna el nombre d'ítems efectivament restaurats. Els que no es trobin s'ignoren silenciosament.
+    /// </summary>
+    public async Task<int> RestoreFromRecycleBinAsync(IList<string> originalPaths)
+    {
+        if (originalPaths.Count == 0) return 0;
+
+        var wanted = new HashSet<string>(originalPaths, StringComparer.OrdinalIgnoreCase);
+        var restored = 0;
+
+        // Shell.Application és un objecte COM; la iteració ha de fer-se en un thread STA.
+        await Task.Run(() =>
+        {
+            var t = new Thread(() =>
+            {
+                try
+                {
+                    var shellType = Type.GetTypeFromProgID("Shell.Application");
+                    if (shellType == null) return;
+                    dynamic shell = Activator.CreateInstance(shellType)!;
+                    dynamic recycleBin = shell.NameSpace(0xA); // ssfBITBUCKET = 10
+                    if (recycleBin == null) return;
+
+                    // Primer recollim els items a restaurar. No invoquem el verb dins de la
+                    // iteració viva perquè mutaria la col·lecció.
+                    var toRestore = new List<dynamic>();
+                    dynamic items = recycleBin.Items();
+                    int count = items.Count;
+                    for (int i = 0; i < count; i++)
+                    {
+                        dynamic item;
+                        try { item = items.Item(i); }
+                        catch { continue; }
+
+                        string origLocation;
+                        string name;
+                        try
+                        {
+                            // Columna 1 a Windows 10+ és "Original Location"
+                            origLocation = recycleBin.GetDetailsOf(item, 1) as string ?? string.Empty;
+                            name = item.Name as string ?? string.Empty;
+                        }
+                        catch { continue; }
+
+                        if (string.IsNullOrEmpty(origLocation) || string.IsNullOrEmpty(name)) continue;
+
+                        var fullOrig = Path.Combine(origLocation, name);
+                        if (wanted.Contains(fullOrig))
+                            toRestore.Add(item);
+                    }
+
+                    // Candidats pel verb "Restore/Restaurar" en diversos idiomes.
+                    // El caràcter '&' indica mnemònic (es treu abans de comparar).
+                    var restoreVerbPrefixes = new[]
+                    {
+                        "restore", "undelete", "restaurar", "restablecer",
+                        "wiederherstellen", "ripristina", "restaurer"
+                    };
+
+                    foreach (var item in toRestore)
+                    {
+                        try
+                        {
+                            dynamic verbs = item.Verbs();
+                            int vCount = verbs.Count;
+                            for (int j = 0; j < vCount; j++)
+                            {
+                                dynamic verb = verbs.Item(j);
+                                string verbName = (verb.Name as string ?? string.Empty)
+                                    .Replace("&", "").Trim();
+                                var lower = verbName.ToLowerInvariant();
+                                if (restoreVerbPrefixes.Any(p => lower.StartsWith(p)))
+                                {
+                                    verb.DoIt();
+                                    restored++;
+                                    break;
+                                }
+                            }
+                        }
+                        catch { /* ignora errors individuals */ }
+                    }
+                }
+                catch { /* error global; retorna el que haguem pogut restaurar */ }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
+            t.Join();
+        });
+
+        return restored;
+    }
+
+    /// <summary>
     /// Envia un fitxer a la paperera de reciclatge via SHFileOperation.
     /// </summary>
     private static void SendToRecycleBin(string filePath)

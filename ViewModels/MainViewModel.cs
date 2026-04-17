@@ -739,11 +739,21 @@ public partial class MainViewModel : ObservableObject
     // === Disk Scanner ===
 
     /// <summary>
-    /// Obre/tanca el panell de disk scan.
+    /// Obre/tanca el panell de disk scan. En tancar, cancel·la qualsevol escaneig en curs
+    /// i buida els resultats perquè el panell sempre arrenqui net (mateix comportament
+    /// que el botó X del DiskScanPopover de macOS).
     /// </summary>
     [RelayCommand]
     private void ToggleDiskScanPanel()
     {
+        if (ShowDiskScanPanel)
+        {
+            // Estem tancant: cancel·la scan en curs i buida resultats
+            _diskScanCts?.Cancel();
+            IsScanningDisk = false;
+            DiskScanResults.Clear();
+            DiskScanStatus = string.Empty;
+        }
         ShowDiskScanPanel = !ShowDiskScanPanel;
     }
 
@@ -1219,13 +1229,35 @@ public partial class MainViewModel : ObservableObject
         if (item.IsVideo)
         {
             IsViewingVideo = true;
-            // Només llegir rotació de fitxers locals
-            if (item.IsLocal && item.VideoRotation == 0)
-                item.VideoRotation = FileService.GetVideoRotation(item.FullPath);
-            ViewerVideoRotation = item.VideoRotation;
             ViewerVideoPath = item.IsLocal ? item.FullPath : null;
             ViewerImage = item.Thumbnail;
             UpdateViewerInfo(item);
+
+            // Rotació del vídeo:
+            // - Si ja es coneix (llegida durant l'scan de carpeta), aplicar-la ja.
+            // - Si no, llegir-la en background per no bloquejar la UI en obrir vídeos
+            //   grans (mateixa mitigació que macOS bug 1).
+            if (item.IsLocal && item.VideoRotation == 0)
+            {
+                ViewerVideoRotation = 0;
+                var targetItem = item;
+                var path = item.FullPath;
+                _ = Task.Run(() =>
+                {
+                    var rot = FileService.GetVideoRotation(path);
+                    Application.Current?.Dispatcher.Invoke(() =>
+                    {
+                        targetItem.VideoRotation = rot;
+                        // Només actualitzar el visor si encara estem mirant aquest mateix ítem.
+                        if (ViewerCurrentItem == targetItem)
+                            ViewerVideoRotation = rot;
+                    });
+                });
+            }
+            else
+            {
+                ViewerVideoRotation = item.VideoRotation;
+            }
             return;
         }
 
@@ -1616,23 +1648,55 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    // === Estat d'undo de delete (1 nivell, estil macOS) ===
+    // Guarda els ítems eliminats pel darrer delete i les seves rutes originals,
+    // perquè es puguin restaurar de la paperera de reciclatge via Shell.Application.
+    private List<PhotoItem> _lastDeletedItems = [];
+    private List<string> _lastDeletedOriginalPaths = [];
+
+    /// <summary>Hi ha un delete recent que es pot desfer.</summary>
+    public bool CanUndoDelete => _lastDeletedItems.Count > 0;
+
+    /// <summary>Text del toast d'undo ("N fitxer(s) moguts a la paperera").</summary>
+    public string UndoToastMessage
+    {
+        get
+        {
+            var n = _lastDeletedItems.Count;
+            return n == 1
+                ? "1 fitxer mogut a la paperera"
+                : $"{n} fitxers moguts a la paperera";
+        }
+    }
+
     [RelayCommand]
     private async Task DeleteSelectedAsync()
     {
+        // Si estem al visor sense cap foto seleccionada a la graella, eliminem la foto
+        // actualment visible. Això permet que el botó de paperera i la tecla Delete
+        // funcionin al visor sense que l'usuari hagi de marcar el checkbox a la graella.
+        if (SelectedPhotos.Count == 0
+            && (IsViewerOpen || IsSplitViewerVisible)
+            && ViewerCurrentItem != null)
+        {
+            SelectedPhotos.Add(ViewerCurrentItem);
+        }
+
         if (SelectedPhotos.Count == 0) return;
 
-        var result = MessageBox.Show(
-            $"Vols eliminar {SelectedPhotos.Count} fitxer(s)?\n\nS'enviaran a la paperera de reciclatge.",
-            "Confirmar eliminació",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (result != MessageBoxResult.Yes) return;
+        // Nota (macOS bug 3): la paperera del sistema ja és reversible i tenim undo explícit
+        // al toast, així que s'ha tret la doble confirmació MessageBox.
 
         IsLoading = true;
         HasError = false;
 
         var filesToDelete = SelectedPhotos.ToList();
+
+        // Capturar estat del visor abans del delete — si estem mirant una foto que s'eliminarà
+        // cal avançar el visor a la següent enlloc de quedar-se a un índex obsolet (bug 5 macOS).
+        var wasViewingDeletedItem = IsViewerOpen && ViewerCurrentItem != null
+                                    && filesToDelete.Contains(ViewerCurrentItem);
+        var previousViewerIndex = ViewerIndex;
 
         var progress = new Progress<(int current, int total, string fileName)>(report =>
         {
@@ -1643,12 +1707,37 @@ public partial class MainViewModel : ObservableObject
         {
             var deleted = await _fileService.DeleteFilesAsync(filesToDelete, progress);
 
-            // Eliminar els elements de la llista
+            // Eliminar de la llista mestra i de la vista filtrada, i recalcular comptadors.
+            // Cal treure'ls també de _allPhotos, si no al canviar filtres tornarien a aparèixer.
+            var toDeleteSet = new HashSet<PhotoItem>(filesToDelete);
+            _allPhotos.RemoveAll(p => toDeleteSet.Contains(p));
             foreach (var item in filesToDelete)
             {
                 Photos.Remove(item);
                 SelectedPhotos.Remove(item);
             }
+            PhotoCount = _allPhotos.Count(p => !p.IsVideo);
+            VideoCount = _allPhotos.Count(p => p.IsVideo);
+
+            // Avançar el visor si la foto visible s'ha eliminat
+            if (wasViewingDeletedItem)
+            {
+                if (Photos.Count == 0)
+                {
+                    CloseViewer();
+                }
+                else
+                {
+                    var newIndex = Math.Min(previousViewerIndex, Photos.Count - 1);
+                    NavigateViewer(newIndex);
+                }
+            }
+
+            // Registrar estat d'undo (sobreescriu qualsevol undo anterior; 1 nivell).
+            _lastDeletedItems = filesToDelete;
+            _lastDeletedOriginalPaths = filesToDelete.Select(f => f.FullPath).ToList();
+            OnPropertyChanged(nameof(CanUndoDelete));
+            OnPropertyChanged(nameof(UndoToastMessage));
 
             StatusMessage = $"{deleted} fitxer(s) eliminat(s) correctament.";
         }
@@ -1661,6 +1750,77 @@ public partial class MainViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// Desfà el darrer delete: restaura els fitxers de la paperera de reciclatge
+    /// a les seves rutes originals i els re-insereix a la graella.
+    /// </summary>
+    [RelayCommand]
+    private async Task UndoLastDeleteAsync()
+    {
+        if (_lastDeletedItems.Count == 0) return;
+
+        // Buidar estat d'undo immediatament per evitar doble execució si es clica dues
+        // vegades seguides. Fem còpia abans de buidar.
+        var itemsToRestore = _lastDeletedItems;
+        var pathsToRestore = _lastDeletedOriginalPaths;
+        _lastDeletedItems = [];
+        _lastDeletedOriginalPaths = [];
+        OnPropertyChanged(nameof(CanUndoDelete));
+        OnPropertyChanged(nameof(UndoToastMessage));
+
+        IsLoading = true;
+        try
+        {
+            var restored = await _fileService.RestoreFromRecycleBinAsync(pathsToRestore);
+
+            // Re-inserir els ítems restaurats a _allPhotos (llista mestra), recalcular
+            // comptadors i regenerar la vista filtrada via ApplyFilter().
+            var reinserted = 0;
+            foreach (var item in itemsToRestore)
+            {
+                if (File.Exists(item.FullPath))
+                {
+                    _allPhotos.Add(item);
+                    reinserted++;
+                }
+            }
+            if (reinserted > 0)
+            {
+                // Re-ordenar per data (mateix criteri que a LoadFolderAsync).
+                _allPhotos.Sort((a, b) =>
+                    (b.DateTaken ?? DateTime.MinValue).CompareTo(a.DateTaken ?? DateTime.MinValue));
+                PhotoCount = _allPhotos.Count(p => !p.IsVideo);
+                VideoCount = _allPhotos.Count(p => p.IsVideo);
+                ApplyFilter();
+            }
+
+            StatusMessage = reinserted == restored
+                ? $"{reinserted} fitxer(s) restaurat(s) de la paperera."
+                : $"{reinserted} de {itemsToRestore.Count} fitxer(s) restaurat(s) (alguns no s'han pogut recuperar).";
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            StatusMessage = $"Error restaurant: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Tanca el toast d'undo sense restaurar (botó X del toast).
+    /// </summary>
+    [RelayCommand]
+    private void DismissUndoToast()
+    {
+        _lastDeletedItems = [];
+        _lastDeletedOriginalPaths = [];
+        OnPropertyChanged(nameof(CanUndoDelete));
+        OnPropertyChanged(nameof(UndoToastMessage));
     }
 
     // === Importació MTP — Browse Mode (estil macOS) ===
