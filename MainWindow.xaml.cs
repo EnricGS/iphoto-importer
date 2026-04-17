@@ -715,4 +715,14 @@ public partial class MainWindow : Window
         _viewModel.DeselectAllCommand.Execute(null);
         e.Handled = true;
     }
+
+    /// <summary>
+    /// Obre la finestra de gestió de destins Mirat. Un cop tancada, si no hi
+    /// havia destí actiu i s'ha afegit algun destí, el primer es tria automàticament.
+    /// </summary>
+    private void OpenMiratSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new MiratSettingsWindow(_viewModel) { Owner = this };
+        win.ShowDialog();
+    }
 }

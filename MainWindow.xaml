@@ -402,6 +402,27 @@
                         </Button>
                     </StackPanel>
 
+                    <!-- Destí Mirat (api externa miratfotos.com / self-hosted) -->
+                    <Button Style="{StaticResource BtnToolbarIcon}"
+                            Click="OpenMiratSettings_Click"
+                            ToolTip="Configurar destins Mirat" Margin="6,0,4,0">
+                        <TextBlock Text="&#xE753;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                   Foreground="{StaticResource Accent}"/>
+                    </Button>
+
+                    <!-- Selector destí Mirat actiu -->
+                    <ComboBox ItemsSource="{Binding MiratDestinations}"
+                              SelectedItem="{Binding ActiveMiratDestination, Mode=TwoWay}"
+                              DisplayMemberPath="Nom"
+                              MinWidth="140" MaxWidth="200"
+                              FontSize="11" Padding="6,3"
+                              VerticalAlignment="Center" Margin="0,0,4,0"
+                              Background="{StaticResource BgElevated}"
+                              Foreground="{StaticResource TextPrimary}"
+                              BorderBrush="{StaticResource BorderSubtle}"
+                              ToolTip="Destí Mirat actiu"
+                              Visibility="{Binding MiratDestinations.Count, Converter={StaticResource PosToVis}}"/>
+
                     <!-- Botó iPhone import -->
                     <Border Width="1" Height="20" Background="{StaticResource BorderSubtle}" Margin="6,0,8,0"
                             VerticalAlignment="Center"/>
@@ -1007,6 +1028,19 @@
                                     Margin="4,0" ToolTip="Moure seleccionats">
                                 <TextBlock Text="&#xE8DE;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                            Foreground="{StaticResource TextPrimary}"/>
+                            </Button>
+                            <!-- Pujar a Mirat — només si hi ha destí Mirat actiu -->
+                            <Button Style="{StaticResource BtnToolbarIcon}"
+                                    Command="{Binding UploadSelectedToMiratCommand}"
+                                    Margin="4,0"
+                                    Visibility="{Binding HasActiveMiratDestination, Converter={StaticResource BoolToVis}}">
+                                <Button.ToolTip>
+                                    <TextBlock>
+                                        <Run Text="Pujar a Mirat ("/><Run Text="{Binding ActiveMiratLabel, Mode=OneWay}"/><Run Text=")"/>
+                                    </TextBlock>
+                                </Button.ToolTip>
+                                <TextBlock Text="&#xE753;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="{StaticResource Accent}"/>
                             </Button>
                             <Button Style="{StaticResource BtnDanger}"
                                     Command="{Binding DeleteSelectedCommand}"

@@ -1,5 +1,81 @@
 # iPhotoManager — Project Log
 
+## 2026-04-17 — Integració Mirat: destins remots per pujar fotos
+
+### Context
+
+Afegir la possibilitat de marcar un **àlbum de Mirat** (projecte germà: https://github.com/EnricGS/mirat) com a destí d'upload, de manera anàloga a les carpetes locals. L'usuari selecciona fotos a la graella → botó "Pujar a Mirat" → es pugen a l'àlbum configurat.
+
+Mirat s'ha migrat recentment de Vercel a un Mac Studio autohostatjat amb Coolify + Postgres + MinIO (veure `project_log.md` de mirat, 2026-04-14 i 2026-04-16). Té un endpoint JSON `/api/upload` que assumeix que els fitxers ja són a MinIO. Per a un client desktop com iPhotoImporter que no té credencials S3, calia una alternativa.
+
+### Canvis a Mirat (commit 5006b5a)
+
+Afegits 3 endpoints a `app/src/app/api/external/*`, tots autenticats amb `X-API-Key` (env `MIRAT_API_KEY`):
+
+- `GET /api/external/grups` — llista grups del sistema per triar destí
+- `GET /api/external/albums?grup_id=X` — àlbums del grup
+- `POST /api/external/upload` — **upload consolidat multipart** (foto + thumbnail + preview + metadades JSON) en una sola crida. Check duplicat per `hash_fitxer`, puja a MinIO amb `uploadToStorage()` del helper existent, crea registre a la taula `fotos`, associa a àlbum. Cleanup MinIO si falla l'INSERT. `maxDuration=300`, `MAX_FILE_SIZE=500MB`.
+
+Les fotos queden amb `ia_processada=false` perquè el safety net del pipeline IA (cada 5 min) o un trigger explícit (`POST /api/process-ia`) les processi després.
+
+Un únic `requireApiKey()` centralitzat a `api/external/_auth.ts`.
+
+### Canvis a iPhotoImporter
+
+**Nous fitxers:**
+
+- `Models/MiratDestination.cs` — classe persistible: `Id, Nom, BaseUrl, ApiKey, GrupId, GrupNom, AlbumId?, AlbumNom?, PujatPer?`. Propietat computada `DisplayLabel` = "Grup / Àlbum" o "Grup".
+- `Services/MiratDestinationStore.cs` — serialització JSON a `%LocalAppData%\iPhotoImporter\mirat-destinations.json`. Load/Save simples.
+- `Services/MiratService.cs` — `HttpClient` amb `X-API-Key` automàtic i `BaseAddress` a la URL del destí. Mètodes:
+  - `TestConnectionAsync()` — GET grups per validar credencials
+  - `ListGroupsAsync()`, `ListAlbumsAsync(grupId)`
+  - `UploadPhotoAsync(photo, progress, ct)` — calcula SHA-256, genera thumbnail 200px q70 i preview 2048px q80 via Magick.NET (`AutoOrient` + `Strip` EXIF), construeix `multipart/form-data` amb tots els camps, POST a `/api/external/upload`. Retorna `MiratUploadResult{Success, FotoId, Duplicat, ErrorMessage}`.
+  - Taula `MimeTypeFromExtension` cobreix RAW (CR2/CR3/NEF/ARW/DNG/RAF), HEIC/HEIF/AVIF, JPEG/PNG/WEBP/TIFF i vídeos (MP4/MOV/AVI/MKV/WebM).
+- `MiratSettingsWindow.xaml/.cs` — finestra de gestió de destins:
+  - Llista destins existents amb botons Editar/Eliminar
+  - Formulari d'alta: URL base, API Key, "Provar connexió" (llista grups), dropdown Grup, dropdown Àlbum (opcional, inclou "(Sense àlbum)"), Nom descriptiu, Desar
+  - Els seus recursos de color estan duplicats a `Window.Resources` perquè cada `Window` té scope propi de `StaticResource`.
+
+**Canvis a ViewModels/MainViewModel.cs:**
+
+- Nou field `_miratStore = new MiratDestinationStore()`
+- `ObservableCollection<MiratDestination> MiratDestinations` carregada al constructor
+- `ActiveMiratDestination` (observable, `NotifyPropertyChangedFor(HasActiveMiratDestination, ActiveMiratLabel)`)
+- `AddOrUpdateMiratDestination(dest)` — upsert + persist
+- `RemoveMiratDestinationCommand`, `SelectMiratDestinationCommand`
+- `UploadSelectedToMiratCommand` → delega a `UploadPhotosToMiratAsync`
+- `UploadPhotosToMiratAsync(photos, dest)` — `SemaphoreSlim(3)` per concurrència, `Task.WhenAll`, reporta progrés a `StatusMessage` via `Dispatcher.InvokeAsync`:
+  - `"Pujant a Mirat (Nom): done/total · N noves · N duplicades · N errors"`
+  - Acabat: `"Acabat: N noves · N duplicades · N errors a Nom."`
+- Propietats `IsUploadingToMirat`, `MiratUploadProgress` per barra de progrés futura
+
+**Canvis a MainWindow.xaml:**
+
+- Toolbar superior: icona núvol (`&#xE753;`, Accent color) → click obre `MiratSettingsWindow`
+- Al costat: `ComboBox` amb `MiratDestinations` + `ActiveMiratDestination` a 2-way binding. Visible si `MiratDestinations.Count > 0`
+- Barra d'accions (quan hi ha selecció): botó "Pujar a Mirat" amb `UploadSelectedToMiratCommand`, visible si `HasActiveMiratDestination`
+
+**Canvis a MainWindow.xaml.cs:**
+
+- `OpenMiratSettings_Click` — instancia `MiratSettingsWindow(_viewModel) { Owner = this }` i fa `ShowDialog()`
+
+### Decisions de disseny
+
+- **Upload consolidat vs granular**: endpoint consolidat (una sola crida multipart per foto). Simplifica molt el client, atomicitat al servidor (cleanup MinIO si falla BD), i així no hi ha orchestració HTTP client-side per 3 fitxers.
+- **Preview al client**: Windows genera preview 2048px amb Magick.NET. Consistent amb el pipeline Python i el web. Menys càrrega al servidor.
+- **Sense IA client-side**: les fotos van amb `ia_processada=false`. El pipeline del Mac Studio les recollirà automàticament (safety net cada 5 min).
+- **Llista de destins**: l'usuari pot tenir múltiples configuracions Mirat (ex: "Família A / Àlbum X", "Família B"). Persistides a disc, seleccionables amb dropdown.
+- **"Moure" a Mirat**: no implementat en aquesta primera iteració. Un cop el flux Copy estigui estable, és un pas petit afegir-lo (eliminar local via recycle bin després d'upload exitós, ja tenim undo).
+
+### Pendent
+
+- Botó "Pujar a Mirat" també al visor (al costat de la paperera)
+- Barra de progrés visual (ara només text a StatusMessage)
+- GPS/càmera/EXIF a les metadades — `PhotoItem` no ho exposa encara, s'hauria d'extraure via Magick.NET en l'upload
+- "Moure a Mirat" (elimina local post-upload)
+
+---
+
 ## 2026-04-17 — Windows al dia: port dels 5 bugs d'UX de macOS
 
 Es porten a la versió Windows WPF els fixes que la sessió del 2026-04-11 havia aplicat només a macOS. El bug 1 (crash Swift de `VideoPlayer`) no aplica a Windows, però sí la seva mitigació defensiva sobre `GetVideoRotation`.

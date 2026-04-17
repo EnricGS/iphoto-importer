@@ -20,9 +20,11 @@ public partial class MainViewModel : ObservableObject
     private readonly ThumbnailCacheService _thumbnailCache = new();
     private readonly ImageCacheService _imageCache = new(20);
     private readonly GeocodingService _geocodingService = new();
+    private readonly MiratDestinationStore _miratStore = new();
     private CancellationTokenSource? _thumbnailCts;
     private CancellationTokenSource? _prefetchCts;
     private CancellationTokenSource? _locationCts;
+    private CancellationTokenSource? _miratUploadCts;
 
     // === Propietats d'estat general ===
 
@@ -179,6 +181,29 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Indica si s'ha definit una carpeta de destí.</summary>
     public bool HasDestinationFolder => !string.IsNullOrEmpty(DestinationFolder);
 
+    // === Destins Mirat (API externa a https://www.miratfotos.com o self-hosted) ===
+
+    /// <summary>Llista de destins Mirat configurats, carregada de disc a l'inici.</summary>
+    public ObservableCollection<MiratDestination> MiratDestinations { get; } = [];
+
+    /// <summary>Destí Mirat actualment seleccionat al toolbar. Null = no hi ha cap actiu.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasActiveMiratDestination))]
+    [NotifyPropertyChangedFor(nameof(ActiveMiratLabel))]
+    private MiratDestination? _activeMiratDestination;
+
+    public bool HasActiveMiratDestination => ActiveMiratDestination != null;
+
+    public string ActiveMiratLabel =>
+        ActiveMiratDestination?.DisplayLabel ?? "Sense destí Mirat";
+
+    /// <summary>Missatge de progrés mentre s'està pujant a Mirat.</summary>
+    [ObservableProperty]
+    private bool _isUploadingToMirat;
+
+    [ObservableProperty]
+    private double _miratUploadProgress;
+
     // === Mode de visualització ===
 
     [ObservableProperty]
@@ -256,6 +281,153 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel()
     {
         SelectedPhotos.CollectionChanged += (_, _) => UpdateSelectionStats();
+
+        // Carregar destins Mirat persistits (si n'hi ha)
+        foreach (var d in _miratStore.Load())
+            MiratDestinations.Add(d);
+    }
+
+    // === Gestió de destins Mirat ===
+
+    /// <summary>
+    /// Afegeix (o actualitza si ja existeix el mateix Id) un destí Mirat i el persisteix.
+    /// </summary>
+    public void AddOrUpdateMiratDestination(MiratDestination dest)
+    {
+        var existing = MiratDestinations.FirstOrDefault(d => d.Id == dest.Id);
+        if (existing != null)
+        {
+            var idx = MiratDestinations.IndexOf(existing);
+            MiratDestinations[idx] = dest;
+        }
+        else
+        {
+            MiratDestinations.Add(dest);
+        }
+        _miratStore.Save(MiratDestinations);
+    }
+
+    [RelayCommand]
+    private void RemoveMiratDestination(MiratDestination? dest)
+    {
+        if (dest == null) return;
+        MiratDestinations.Remove(dest);
+        if (ActiveMiratDestination?.Id == dest.Id)
+            ActiveMiratDestination = null;
+        _miratStore.Save(MiratDestinations);
+    }
+
+    [RelayCommand]
+    private void SelectMiratDestination(MiratDestination? dest)
+    {
+        ActiveMiratDestination = dest;
+        StatusMessage = dest != null
+            ? $"Destí Mirat actiu: {dest.DisplayLabel}"
+            : "Destí Mirat desactivat";
+    }
+
+    /// <summary>
+    /// Puja les fotos seleccionades al destí Mirat actiu. Delega a
+    /// UploadPhotosToMiratAsync amb la llista de SelectedPhotos.
+    /// </summary>
+    [RelayCommand]
+    private async Task UploadSelectedToMiratAsync()
+    {
+        if (ActiveMiratDestination == null)
+        {
+            StatusMessage = "No hi ha cap destí Mirat actiu.";
+            return;
+        }
+        if (SelectedPhotos.Count == 0) return;
+        await UploadPhotosToMiratAsync(SelectedPhotos.ToList(), ActiveMiratDestination);
+    }
+
+    /// <summary>
+    /// Puja la foto actual al visor al destí Mirat actiu.
+    /// </summary>
+    [RelayCommand]
+    private async Task UploadCurrentToMiratAsync()
+    {
+        if (ActiveMiratDestination == null || ViewerCurrentItem == null) return;
+        await UploadPhotosToMiratAsync([ViewerCurrentItem], ActiveMiratDestination);
+    }
+
+    /// <summary>
+    /// Orquestra l'upload d'un conjunt de fotos a Mirat. Paral·lelisme controlat
+    /// (3 uploads simultanis), reporta progrés a StatusMessage/MiratUploadProgress.
+    /// </summary>
+    public async Task UploadPhotosToMiratAsync(List<PhotoItem> photos, MiratDestination dest)
+    {
+        if (photos.Count == 0) return;
+
+        _miratUploadCts?.Cancel();
+        _miratUploadCts = new CancellationTokenSource();
+        var ct = _miratUploadCts.Token;
+
+        IsUploadingToMirat = true;
+        MiratUploadProgress = 0;
+        HasError = false;
+
+        using var svc = new MiratService(dest);
+
+        var total = photos.Count;
+        var uploaded = 0;
+        var duplicats = 0;
+        var errors = 0;
+        using var gate = new SemaphoreSlim(3); // 3 uploads concurrents
+
+        var tasks = photos.Select(async photo =>
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                var result = await svc.UploadPhotoAsync(photo, progress: null, ct);
+                if (!ct.IsCancellationRequested)
+                {
+                    if (result.Success)
+                    {
+                        if (result.Duplicat) Interlocked.Increment(ref duplicats);
+                        else Interlocked.Increment(ref uploaded);
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref errors);
+                        System.Diagnostics.Debug.WriteLine($"[Mirat] Error pujant {photo.FileName}: {result.ErrorMessage}");
+                    }
+                    // Update UI en el thread UI
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        var done = uploaded + duplicats + errors;
+                        MiratUploadProgress = (double)done / total * 100.0;
+                        StatusMessage = $"Pujant a Mirat ({dest.DisplayLabel}): {done}/{total} " +
+                                        $"· {uploaded} noves · {duplicats} duplicades · {errors} errors";
+                    });
+                }
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }).ToArray();
+
+        try
+        {
+            await Task.WhenAll(tasks);
+        }
+        catch (OperationCanceledException) { /* cancel·lació neta */ }
+
+        IsUploadingToMirat = false;
+        MiratUploadProgress = 0;
+
+        if (ct.IsCancellationRequested)
+        {
+            StatusMessage = $"Cancel·lat. {uploaded} pujades, {duplicats} duplicades, {errors} errors.";
+        }
+        else
+        {
+            StatusMessage = $"Acabat: {uploaded} noves · {duplicats} duplicades · {errors} errors a {dest.DisplayLabel}.";
+            HasError = errors > 0;
+        }
     }
 
     /// <summary>
