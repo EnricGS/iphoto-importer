@@ -4,6 +4,7 @@ import SwiftUI
 struct ToolbarView: View {
     @Bindable var viewModel: MainViewModel
     @State private var showAbout = false
+    @State private var showMiratSettings = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -149,6 +150,52 @@ struct ToolbarView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(Color.bgElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+
+            // Destí Mirat (API externa miratfotos.com / self-hosted)
+            Button {
+                showMiratSettings = true
+            } label: {
+                Image(systemName: "icloud.and.arrow.up")
+                    .font(.system(size: 14))
+                    .foregroundStyle(viewModel.hasActiveMiratDestination ? Color.accent : Color.textPrimary)
+            }
+            .buttonStyle(ToolbarIconButtonStyle())
+            .help("Configurar destins Mirat")
+            .sheet(isPresented: $showMiratSettings) {
+                MiratSettingsView(viewModel: viewModel, isPresented: $showMiratSettings)
+            }
+
+            // Selector de destí Mirat actiu (només si n'hi ha)
+            if !viewModel.miratDestinations.isEmpty {
+                MiratDestinationPicker(viewModel: viewModel)
+            }
+
+            // Chip del destí actiu + X per desactivar
+            if viewModel.hasActiveMiratDestination {
+                HStack(spacing: 4) {
+                    Text(viewModel.activeMiratLabel)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.accent)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 160)
+                        .help(viewModel.activeMiratLabel)
+
+                    Button {
+                        viewModel.selectMiratDestination(nil)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8))
+                            .foregroundStyle(Color.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Desactivar destí Mirat")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.accentSubtle)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
@@ -407,6 +454,48 @@ struct IconButtonStyle: ButtonStyle {
             .padding(6)
             .background(configuration.isPressed ? Color.bgHover : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+// MARK: - Mirat Destination Picker
+
+/// Selector del destí Mirat actiu. Quan hi ha un destí seleccionat, les accions
+/// Copiar/Moure pugen a Mirat en lloc de la carpeta local.
+struct MiratDestinationPicker: View {
+    @Bindable var viewModel: MainViewModel
+
+    var body: some View {
+        Menu {
+            Button("Cap (carpeta local)") {
+                viewModel.selectMiratDestination(nil)
+            }
+            Divider()
+            ForEach(viewModel.miratDestinations) { dest in
+                Button {
+                    viewModel.selectMiratDestination(dest)
+                } label: {
+                    if viewModel.activeMiratDestination?.id == dest.id {
+                        Label(dest.nom.isEmpty ? dest.displayLabel : dest.nom, systemImage: "checkmark")
+                    } else {
+                        Text(dest.nom.isEmpty ? dest.displayLabel : dest.nom)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Color.textDim)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background(Color.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Triar destí Mirat actiu")
     }
 }
 

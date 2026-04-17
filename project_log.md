@@ -1,5 +1,59 @@
 # iPhotoManager — Project Log
 
+## 2026-04-18 — Paritat macOS: integració Mirat replicada
+
+### Context
+
+Replica a la versió macOS (SwiftUI, `iPhotoManager.app`) la integració Mirat afegida ahir a Windows (WPF). Mateix flux: usuari configura destins Mirat (URL + API Key + grup + àlbum opcional), selecciona un com a actiu, i les accions Copiar/Moure pugen a Mirat en lloc de la carpeta local.
+
+### Canvis a iPhoto Manager (macOS)
+
+**Nous fitxers:**
+
+- `MacOS/iPhotoManager/Models/MiratDestination.swift` — `struct Codable, Identifiable, Hashable` amb els mateixos camps que la versió Windows (`id, nom, baseUrl, apiKey, grupId, grupNom, albumId?, albumNom?, pujatPer?`) i `displayLabel` computada.
+- `MacOS/iPhotoManager/Services/MiratDestinationStore.swift` — persistència JSON a `~/Library/Application Support/iPhotoManager/mirat-destinations.json` via `JSONEncoder`/`Decoder`. Load/Save atòmic.
+- `MacOS/iPhotoManager/Services/MiratService.swift` — client `URLSession`:
+  - `listGroups()`, `listAlbums(grupId:)` — GET amb `X-API-Key`
+  - `uploadPhoto(_:)` — multipart construït manualment (boundary sense cometes, evita el bug .NET que va calcar undici al client Windows). SHA-256 via `CryptoKit` streaming (chunks 64KB). Thumbnail 200px q70 i preview 2048px q80 via `ImageIO` (`CGImageSourceCreateThumbnailAtIndex` + `kCGImageSourceCreateThumbnailWithTransform` per respectar EXIF orientation, `CGImageDestination` JPEG amb `kCGImageDestinationLossyCompressionQuality`). Filename ASCII-safe. Taula MIME idèntica a Windows.
+  - Retorna `MiratUploadResult { success, fotoId, duplicat, errorMessage }`
+- `MacOS/iPhotoManager/Views/MiratSettingsView.swift` — `sheet` de configuració: llista destins amb Editar/Eliminar, formulari URL → API Key → Provar connexió → Picker Grup → Picker Àlbum (opcional) → Nom descriptiu → Desar. Preompleix el nom amb el slug del grup quan n'hi ha.
+
+**Fitxers modificats:**
+
+- `MacOS/iPhotoManager/ViewModels/MainViewModel.swift`:
+  - Nova propietat `miratStore = MiratDestinationStore()`
+  - Estat: `miratDestinations: [MiratDestination]`, `activeMiratDestination: MiratDestination?`, `isUploadingToMirat`, `miratUploadProgress`. Computed `hasActiveMiratDestination`, `activeMiratLabel`.
+  - `loadPersistedSettings()` carrega la llista de disc.
+  - `addOrUpdateMiratDestination(_:)`, `removeMiratDestination(_:)`, `selectMiratDestination(_:)` — amb persistència automàtica.
+  - `uploadPhotosToMirat(_:destination:)` — `withTaskGroup` amb concurrència limitada a 3 simultanis. Actualitza `statusMessage` i `miratUploadProgress` a cada resultat. Format consistent amb Windows: `"Pujant a Mirat (Nom): done/total · N noves · N duplicades · N errors"`.
+  - `copySelected()`, `copyCurrentPhoto()`: si hi ha `activeMiratDestination`, ruteja a upload Mirat en lloc de copiar a carpeta local.
+  - `moveSelected()`: si hi ha destí Mirat actiu, puja primer i, sense errors, elimina els originals via paperera (reversible amb Cmd+Z).
+
+- `MacOS/iPhotoManager/Views/ToolbarView.swift`:
+  - Nova icona núvol (`icloud.and.arrow.up`) que obre el sheet `MiratSettingsView`. Pinta en Accent quan hi ha destí actiu.
+  - Nou `MiratDestinationPicker` (`Menu` de SwiftUI) per triar el destí actiu, visible quan hi ha almenys un destí configurat.
+  - Chip del destí actiu amb fons `accentSubtle` i botó X per desactivar-lo i tornar a usar la carpeta local.
+
+### Decisions de disseny macOS-específiques
+
+- **HTTP amb `URLSession`**: en lloc de `HttpClient` (Windows). `URLSessionConfiguration` amb timeouts de 300s/600s igual al client Windows. Multipart construït amb `Data` i escapament manual — la Fundació no té equivalent a `MultipartFormDataContent` amb el seu bug del boundary entre cometes, així que evitem d'arrel el problema que Windows va tenir amb undici/Next.js.
+- **Thumbnail/preview amb `ImageIO`**: sense dependències externes (Magick.NET a Windows). `CGImageSourceCreateThumbnailAtIndex` és ja el mètode usat per a miniatures de la graella, sabem que funciona amb RAW, HEIC, etc. El flag `kCGImageSourceCreateThumbnailWithTransform: true` aplica la rotació EXIF; no tornem a escriure propietats originals, que equival al `Strip()` de Magick.
+- **SHA-256 via `CryptoKit`**: streaming amb `FileHandle.read(upToCount:)` + `SHA256.update(data:)` per no carregar el fitxer sencer a memòria.
+- **Concurrència**: `withTaskGroup` amb límit manual a 3 tasques in-flight. Equivalent a `SemaphoreSlim(3)` de Windows, més idiomàtic en Swift.
+- **Persistència**: `~/Library/Application Support/iPhotoManager/` seguint les convencions Apple. Separat del `UserDefaults.destinationFolder` perquè la llista de destins pot créixer.
+
+### Build
+
+`swift build` net. `./build.sh` actualitza `iPhotoManager.app` amb firma Developer ID. Avisos preexistents de `makeIterator` a `FileService.swift` i `MainViewModel.swift` no es toquen.
+
+### Pendent
+
+- Barra de progrés visual mentre `isUploadingToMirat` (ara només es veu al `statusMessage`).
+- Cancel·lació d'upload en curs.
+- Testar amb un destí Mirat real: cal verificar que el servidor accepta el multipart de Swift igual que el de C#.
+
+---
+
 ## 2026-04-17 — Integració Mirat: destins remots per pujar fotos
 
 ### Context

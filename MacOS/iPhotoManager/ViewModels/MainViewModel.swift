@@ -28,6 +28,7 @@ final class MainViewModel {
     private let thumbnailCache = ThumbnailCacheService()
     private let imageCache = ImageCacheService(maxSize: 20)
     let deviceService = DeviceImportService()
+    private let miratStore = MiratDestinationStore()
 
     init() {
         loadPersistedSettings()
@@ -270,8 +271,112 @@ final class MainViewModel {
     }
     var hasDestinationFolder: Bool { destinationFolder != nil && !destinationFolder!.isEmpty }
 
+    // MARK: - Destins Mirat (API externa a https://www.miratfotos.com o self-hosted)
+
+    /// Llista de destins Mirat configurats, carregada de disc a l'inici.
+    var miratDestinations: [MiratDestination] = []
+
+    /// Destí Mirat actualment seleccionat al toolbar. Nil = no hi ha cap actiu.
+    var activeMiratDestination: MiratDestination?
+
+    var hasActiveMiratDestination: Bool { activeMiratDestination != nil }
+    var activeMiratLabel: String { activeMiratDestination?.displayLabel ?? "Sense destí Mirat" }
+
+    /// Estat de progrés mentre s'està pujant a Mirat.
+    var isUploadingToMirat: Bool = false
+    var miratUploadProgress: Double = 0
+
     private func loadPersistedSettings() {
         destinationFolder = UserDefaults.standard.string(forKey: "destinationFolder")
+        miratDestinations = miratStore.load()
+    }
+
+    // MARK: - Gestió de destins Mirat
+
+    /// Afegeix (o actualitza si ja existeix el mateix Id) un destí Mirat i el persisteix.
+    func addOrUpdateMiratDestination(_ dest: MiratDestination) {
+        if let idx = miratDestinations.firstIndex(where: { $0.id == dest.id }) {
+            miratDestinations[idx] = dest
+            // Si era l'actiu, refresca també la seleccio activa
+            if activeMiratDestination?.id == dest.id {
+                activeMiratDestination = dest
+            }
+        } else {
+            miratDestinations.append(dest)
+        }
+        miratStore.save(miratDestinations)
+    }
+
+    func removeMiratDestination(_ dest: MiratDestination) {
+        miratDestinations.removeAll { $0.id == dest.id }
+        if activeMiratDestination?.id == dest.id {
+            activeMiratDestination = nil
+        }
+        miratStore.save(miratDestinations)
+    }
+
+    /// Activa/desactiva destí Mirat. Passa nil per desactivar i tornar a usar carpeta local.
+    func selectMiratDestination(_ dest: MiratDestination?) {
+        activeMiratDestination = dest
+        if let dest {
+            statusMessage = "Destí Mirat actiu: \(dest.displayLabel)"
+        } else {
+            statusMessage = "Destí Mirat desactivat."
+        }
+    }
+
+    /// Orquestra l'upload d'un conjunt de fotos a Mirat. Paral·lelisme controlat
+    /// (3 uploads simultanis), reporta progrés a statusMessage/miratUploadProgress.
+    func uploadPhotosToMirat(_ photos: [PhotoItem], destination dest: MiratDestination) async {
+        guard !photos.isEmpty else { return }
+
+        isUploadingToMirat = true
+        miratUploadProgress = 0
+        hasError = false
+
+        let svc = MiratService(destination: dest)
+        let total = photos.count
+        var uploaded = 0
+        var duplicats = 0
+        var errors = 0
+
+        // TaskGroup amb concurrencia limitada a 3
+        await withTaskGroup(of: MiratUploadResult.self) { group in
+            var iterator = photos.makeIterator()
+            var inFlight = 0
+            let concurrency = 3
+
+            // Omplir els primers 3
+            while inFlight < concurrency, let photo = iterator.next() {
+                group.addTask { await svc.uploadPhoto(photo) }
+                inFlight += 1
+            }
+
+            while let result = await group.next() {
+                inFlight -= 1
+                if result.success {
+                    if result.duplicat { duplicats += 1 } else { uploaded += 1 }
+                } else {
+                    errors += 1
+                }
+
+                let done = uploaded + duplicats + errors
+                miratUploadProgress = Double(done) / Double(total) * 100.0
+                statusMessage = "Pujant a Mirat (\(dest.displayLabel)): \(done)/\(total) "
+                    + "· \(uploaded) noves · \(duplicats) duplicades · \(errors) errors"
+
+                // Llançar la següent si en queden
+                if let next = iterator.next() {
+                    group.addTask { await svc.uploadPhoto(next) }
+                    inFlight += 1
+                }
+            }
+        }
+
+        isUploadingToMirat = false
+        miratUploadProgress = 0
+        hasError = errors > 0
+        statusMessage = "Acabat: \(uploaded) noves · \(duplicats) duplicades · \(errors) errors a \(dest.displayLabel)."
     }
 
     // MARK: - Scroll Request (for split mode sync)
@@ -1321,6 +1426,12 @@ final class MainViewModel {
     func copySelected() async {
         guard !selectedPhotos.isEmpty else { return }
 
+        // Prioritat: si hi ha destí Mirat actiu, puja allà. Si no, carpeta local.
+        if let mirat = activeMiratDestination {
+            await uploadPhotosToMirat(Array(selectedPhotos), destination: mirat)
+            return
+        }
+
         guard let dest = resolveDestinationFolder(title: "Selecciona destí per copiar") else { return }
 
         await copyFiles(Array(selectedPhotos), to: dest)
@@ -1328,6 +1439,11 @@ final class MainViewModel {
 
     func copyCurrentPhoto() async {
         guard let item = viewerCurrentItem else { return }
+
+        if let mirat = activeMiratDestination {
+            await uploadPhotosToMirat([item], destination: mirat)
+            return
+        }
 
         guard let dest = resolveDestinationFolder(title: "Selecciona destí per copiar") else { return }
 
@@ -1360,6 +1476,19 @@ final class MainViewModel {
 
     func moveSelected() async {
         guard !selectedPhotos.isEmpty else { return }
+
+        // Si hi ha destí Mirat actiu, "moure" = pujar + eliminar local (a la paperera,
+        // reversible amb Cmd+Z gràcies a la infraestructura d'undo existent).
+        if let mirat = activeMiratDestination {
+            let filesToMove = Array(selectedPhotos)
+            await uploadPhotosToMirat(filesToMove, destination: mirat)
+            // Si l'upload ha anat amb errors, no eliminem (hasError queda a true).
+            if !hasError {
+                selectedPhotos = Set(filesToMove)
+                await deleteSelected()
+            }
+            return
+        }
 
         let panel = NSOpenPanel()
         panel.title = "Select destination for move"
