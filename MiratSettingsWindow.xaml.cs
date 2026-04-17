@@ -92,11 +92,14 @@ public partial class MiratSettingsWindow : Window
             return;
         }
         _editing.GrupId = g.Id;
-        _editing.GrupNom = g.Nom;
+        // Guardem l'etiqueta combinada (nom BD + slug si n'hi ha) per al DisplayLabel
+        // del destí — el camp `nom` a la BD sol ser "Família" per default, el slug
+        // és l'identificador real visible a la URL.
+        _editing.GrupNom = !string.IsNullOrEmpty(g.Slug) ? $"{g.Nom} ({g.Slug})" : g.Nom;
 
-        // Pre-omplir nom si és buit
+        // Pre-omplir nom descriptiu amb el slug (més descriptiu que "Família")
         if (string.IsNullOrWhiteSpace(NomInput.Text))
-            NomInput.Text = g.Nom;
+            NomInput.Text = !string.IsNullOrEmpty(g.Slug) ? g.Slug : g.Nom;
 
         // Carregar àlbums del grup
         AlbumCombo.ItemsSource = null;

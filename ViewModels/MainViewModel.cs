@@ -1713,9 +1713,15 @@ public partial class MainViewModel : ObservableObject
     {
         if (SelectedPhotos.Count == 0) return;
 
+        // Prioritat: si hi ha destí Mirat actiu, puja allà. Si no, carpeta local.
+        if (ActiveMiratDestination != null)
+        {
+            await UploadPhotosToMiratAsync(SelectedPhotos.ToList(), ActiveMiratDestination);
+            return;
+        }
+
         var dest = ResolveDestinationFolder();
         if (dest == null) return;
-
         await CopyFilesAsync(SelectedPhotos.ToList(), dest);
     }
 
@@ -1724,9 +1730,14 @@ public partial class MainViewModel : ObservableObject
     {
         if (ViewerCurrentItem == null) return;
 
+        if (ActiveMiratDestination != null)
+        {
+            await UploadPhotosToMiratAsync([ViewerCurrentItem], ActiveMiratDestination);
+            return;
+        }
+
         var dest = ResolveDestinationFolder();
         if (dest == null) return;
-
         await CopyFilesAsync([ViewerCurrentItem], dest);
     }
 
@@ -1765,6 +1776,24 @@ public partial class MainViewModel : ObservableObject
     private async Task MoveSelectedAsync()
     {
         if (SelectedPhotos.Count == 0) return;
+
+        // Si hi ha destí Mirat actiu, "moure" = pujar + eliminar local (a la paperera,
+        // reversible amb Ctrl+Z gràcies a la infraestructura d'undo existent).
+        if (ActiveMiratDestination != null)
+        {
+            var filesToMoveToMirat = SelectedPhotos.ToList();
+            await UploadPhotosToMiratAsync(filesToMoveToMirat, ActiveMiratDestination);
+            // Si l'upload ha anat amb errors, no eliminem (el StatusMessage ja ho indica).
+            // Criteri: si HasError, abortem eliminació. Si no, eliminem tot.
+            if (!HasError)
+            {
+                SelectedPhotos.Clear();
+                foreach (var p in filesToMoveToMirat)
+                    if (!SelectedPhotos.Contains(p)) SelectedPhotos.Add(p);
+                await DeleteSelectedAsync();
+            }
+            return;
+        }
 
         var dialog = new OpenFolderDialog
         {

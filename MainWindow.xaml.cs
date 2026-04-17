@@ -52,6 +52,13 @@ public partial class MainWindow : Window
         _viewModel = new MainViewModel();
         DataContext = _viewModel;
 
+        // Dimensió inicial: 60% de la pantalla primària, centrada. L'usuari ens va
+        // demanar explícitament que no arrenqui maximitzada.
+        var screenW = SystemParameters.PrimaryScreenWidth;
+        var screenH = SystemParameters.PrimaryScreenHeight;
+        Width = Math.Max(MinWidth, screenW * 0.6);
+        Height = Math.Max(MinHeight, screenH * 0.6);
+
         // Subscriure's als canvis de mode per actualitzar les columnes del layout
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
 

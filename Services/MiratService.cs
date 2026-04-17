@@ -32,6 +32,7 @@ public class MiratService : IDisposable
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+
     public MiratService(MiratDestination dest)
     {
         _dest = dest;
@@ -111,6 +112,15 @@ public class MiratService : IDisposable
         // 4. Multipart
         progress?.Report(0.35);
         using var form = new MultipartFormDataContent();
+
+        // BUG .NET: MultipartFormDataContent afegeix cometes dobles al boundary
+        // ("boundary=\"...\"") i alguns parsers (Next.js/undici) les rebutgen amb
+        // "Failed to parse body as FormData". Cal treure-les manualment.
+        var ctParam = form.Headers.ContentType?.Parameters
+            .FirstOrDefault(p => p.Name == "boundary");
+        if (ctParam?.Value != null)
+            ctParam.Value = ctParam.Value.Trim('"');
+
         form.Add(new StringContent(_dest.GrupId), "grup_id");
         if (!string.IsNullOrEmpty(_dest.AlbumId))
             form.Add(new StringContent(_dest.AlbumId), "album_id");
@@ -124,7 +134,10 @@ public class MiratService : IDisposable
         {
             var fotoContent = new StreamContent(fotoStream);
             fotoContent.Headers.ContentType = new MediaTypeHeaderValue(mime);
-            form.Add(fotoContent, "foto", Path.GetFileName(photo.FullPath));
+            // Nom de fitxer ASCII-safe — undici/fetch de Next.js peta amb noms amb espais
+            // o caràcters no-ASCII si no estan codificats amb RFC 5987 (filename*=utf-8''...).
+            var safeName = AsciiSafe(Path.GetFileName(photo.FullPath));
+            form.Add(fotoContent, "foto", safeName);
 
             // Thumbnail (sempre JPEG)
             var thumbContent = new ByteArrayContent(thumbBytes);
@@ -140,7 +153,19 @@ public class MiratService : IDisposable
             }
 
             progress?.Report(0.50);
-            var resp = await _http.PostAsync("api/external/upload", form, ct);
+            // Materialitzar el buffer: sense això, .NET pot usar Transfer-Encoding:
+            // chunked i alguns parsers HTTP/2 el gestionen malament.
+            await form.LoadIntoBufferAsync();
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await _http.PostAsync("api/external/upload", form, ct);
+            }
+            catch (Exception ex)
+            {
+                return MiratUploadResult.Fail($"Error de xarxa: {ex.Message}");
+            }
             progress?.Report(0.95);
 
             var body = await resp.Content.ReadAsStringAsync(ct);
@@ -214,6 +239,24 @@ public class MiratService : IDisposable
         {
             return (Array.Empty<byte>(), Array.Empty<byte>(), 0, 0);
         }
+    }
+
+    /// <summary>
+    /// Converteix un nom de fitxer a ASCII-safe per al filename del Content-Disposition.
+    /// Substitueix espais i caràcters no-ASCII per '_'.
+    /// </summary>
+    private static string AsciiSafe(string name)
+    {
+        var sb = new System.Text.StringBuilder(name.Length);
+        foreach (var c in name)
+        {
+            if (c is (>= '0' and <= '9') or (>= 'A' and <= 'Z') or (>= 'a' and <= 'z')
+                or '.' or '-' or '_')
+                sb.Append(c);
+            else
+                sb.Append('_');
+        }
+        return sb.Length == 0 ? "file.bin" : sb.ToString();
     }
 
     private static string MimeTypeFromExtension(string ext)

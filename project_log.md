@@ -67,12 +67,46 @@ Un únic `requireApiKey()` centralitzat a `api/external/_auth.ts`.
 - **Llista de destins**: l'usuari pot tenir múltiples configuracions Mirat (ex: "Família A / Àlbum X", "Família B"). Persistides a disc, seleccionables amb dropdown.
 - **"Moure" a Mirat**: no implementat en aquesta primera iteració. Un cop el flux Copy estigui estable, és un pas petit afegir-lo (eliminar local via recycle bin després d'upload exitós, ja tenim undo).
 
+### Refactor post-test: Copy/Move unificats amb destí
+
+Primera iteració tenia un botó "Pujar a Mirat" separat al costat de Copy/Move. Canviat a comportament unificat:
+
+- Si hi ha `ActiveMiratDestination` actiu, `CopySelectedCommand` i `CopyCurrentPhotoCommand` pugen a Mirat enlloc de copiar a carpeta local.
+- `MoveSelectedCommand` amb destí Mirat: puja primer i, si no hi ha errors, elimina els originals via paperera de reciclatge (reversible amb Ctrl+Z).
+- Tret el botó "Pujar a Mirat" separat del XAML.
+- Afegit botó X al costat del ComboBox del toolbar per desactivar el destí Mirat i tornar a la carpeta local.
+
+### Bug crític a l'endpoint d'upload: `Failed to parse body as FormData`
+
+Al primer test d'upload real, el servidor retornava 400 amb aquest missatge. Diagnòstic:
+
+1. Verificat que el client enviava Content-Type correcte (`multipart/form-data; boundary=UUID` sense cometes).
+2. Verificat que no era problema de chunked encoding (afegit `form.LoadIntoBufferAsync()` per materialitzar).
+3. Verificat amb ASCII-safe filenames (per evitar `filename*=utf-8''...` RFC 5987).
+4. Res funcionava — **`request.formData()` d'undici (fetch natiu de Node.js 18+, usat per Next.js) rebutja multiparts perfectament vàlids generats per `System.Net.Http.MultipartFormDataContent` de .NET.** És un bug conegut d'undici.
+
+**Solució:** canviar el parser al servidor. Substituït `request.formData()` per **busboy** (npm `busboy` + `@types/busboy`) a [app/src/app/api/external/upload/route.ts](../mirat/app/src/app/api/external/upload/route.ts). Busboy és més permissiu i accepta qualsevol multipart RFC 7578 compliant. Stream del request adaptat via `Readable.fromWeb(request.body).pipe(bb)`.
+
+Commit a Mirat: `a63abf0` — "Fix /api/external/upload: usar busboy per parsejar multipart". Un cop desplegat a Coolify, la pujada des d'iPhotoImporter funciona correctament.
+
+### Arrencada en mode finestra (no maximitzada)
+
+Per petició de l'usuari, l'app ja no arrenca maximitzada. Al constructor de `MainWindow`:
+
+```csharp
+Width = Math.Max(MinWidth, SystemParameters.PrimaryScreenWidth * 0.6);
+Height = Math.Max(MinHeight, SystemParameters.PrimaryScreenHeight * 0.6);
+```
+
+### Recursos visuals globals
+
+Els `SolidColorBrush` del tema (BgBase, Accent, TextPrimary, etc.) estaven només a `MainWindow.Resources` i `MiratSettingsWindow` crashava amb XamlParseException perquè els recursos dins `Window.Resources` no estan disponibles quan s'avaluen els atributs del tag `<Window>` (Foreground, Background). Moguts tots a `App.xaml` / `Application.Resources` perquè siguin globals i accessibles des de qualsevol Window.
+
 ### Pendent
 
 - Botó "Pujar a Mirat" també al visor (al costat de la paperera)
 - Barra de progrés visual (ara només text a StatusMessage)
 - GPS/càmera/EXIF a les metadades — `PhotoItem` no ho exposa encara, s'hauria d'extraure via Magick.NET en l'upload
-- "Moure a Mirat" (elimina local post-upload)
 
 ---
 
