@@ -18,8 +18,26 @@ public class MiratDestination
     /// <summary>URL base del servidor Mirat, sense slash final. Ex: "https://www.miratfotos.com".</summary>
     public string BaseUrl { get; set; } = "https://www.miratfotos.com";
 
-    /// <summary>API key compartida (MIRAT_API_KEY del servidor). Enviada com X-API-Key.</summary>
+    /// <summary>
+    /// API key compartida (MIRAT_API_KEY del servidor). Enviada com X-API-Key.
+    /// Legacy — per configuracions d'abans del device-code flow. Si <see cref="AccessToken"/>
+    /// està definit, es prioritza aquest.
+    /// </summary>
     public string ApiKey { get; set; } = "";
+
+    /// <summary>
+    /// Access token obtingut via device-code flow (prefix mkd_). Enviat com
+    /// <c>Authorization: Bearer</c>. Preferit sobre <see cref="ApiKey"/>. Un cop
+    /// configurat, el <see cref="GrupId"/> i el <see cref="PujatPer"/> els determina
+    /// el servidor des de la sessió — els camps locals només s'usen per mostrar.
+    /// </summary>
+    public string? AccessToken { get; set; }
+
+    /// <summary>UUID d'usuari Mirat (rebut al autoritzar). Només per mostrar.</summary>
+    public string? UserId { get; set; }
+
+    /// <summary>Nom d'usuari Mirat (rebut al autoritzar). Només per mostrar.</summary>
+    public string? UserName { get; set; }
 
     /// <summary>UUID del grup Mirat de destí.</summary>
     public string GrupId { get; set; } = "";

@@ -41,7 +41,17 @@ public class MiratService : IDisposable
             BaseAddress = new Uri(dest.BaseUrl.TrimEnd('/') + "/"),
             Timeout = TimeSpan.FromMinutes(5),
         };
-        _http.DefaultRequestHeaders.Add("X-API-Key", dest.ApiKey);
+        // Prioritza l'access token (device-code flow). Mantenim X-API-Key com a
+        // fallback per configuracions legacy creades abans del flow per-usuari.
+        if (!string.IsNullOrEmpty(dest.AccessToken))
+        {
+            _http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", dest.AccessToken);
+        }
+        else if (!string.IsNullOrEmpty(dest.ApiKey))
+        {
+            _http.DefaultRequestHeaders.Add("X-API-Key", dest.ApiKey);
+        }
     }
 
     /// <summary>Comprova que BaseUrl + ApiKey funcionen (fa GET /api/external/grups).</summary>

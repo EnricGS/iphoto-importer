@@ -31,6 +31,9 @@ struct MiratSettingsView: View {
     @State private var statusColor: Color = Color.textSecondary
     @State private var canSave: Bool = false
 
+    // Sheet del device-code flow (mètode recomanat)
+    @State private var showConnectSheet: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Capçalera
@@ -44,11 +47,24 @@ struct MiratSettingsView: View {
             }
             .padding(.bottom, 14)
 
+            // Botó destacat per mètode recomanat
+            Button {
+                showConnectSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "link.badge.plus")
+                    Text("Vincular amb Mirat (recomanat)")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .padding(.bottom, 12)
+
             // Llista de destins existents
             existingDestinations
                 .frame(minHeight: 80, maxHeight: 170)
 
-            Text("Afegir o editar destí")
+            Text("Afegir manualment (avançat)")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.textSecondary)
                 .padding(.top, 18)
@@ -78,8 +94,11 @@ struct MiratSettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 560, height: 640)
+        .frame(width: 560, height: 700)
         .background(Color.bgBase)
+        .sheet(isPresented: $showConnectSheet) {
+            ConnectMiratSheet(viewModel: viewModel, isPresented: $showConnectSheet)
+        }
     }
 
     // MARK: - Llista existent

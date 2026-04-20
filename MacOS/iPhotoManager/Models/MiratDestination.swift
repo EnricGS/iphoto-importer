@@ -17,7 +17,21 @@ struct MiratDestination: Codable, Identifiable, Hashable {
     var baseUrl: String = "https://www.miratfotos.com"
 
     /// API key compartida (MIRAT_API_KEY del servidor). Enviada com X-API-Key.
+    /// Legacy — per configuracions d'abans del device-code flow. Si `accessToken`
+    /// està definit, es prioritza aquest.
     var apiKey: String = ""
+
+    /// Access token obtingut via device-code flow (prefix `mkd_`). Enviat com
+    /// `Authorization: Bearer`. Preferit sobre `apiKey`. Un cop configurat, el
+    /// `grupId` i el `pujatPer` els determina el servidor — els camps locals
+    /// només s'usen per mostrar.
+    var accessToken: String?
+
+    /// UUID d'usuari Mirat (rebut al autoritzar). Només per mostrar.
+    var userId: String?
+
+    /// Nom d'usuari Mirat (rebut al autoritzar). Només per mostrar.
+    var userName: String?
 
     /// UUID del grup Mirat de destí.
     var grupId: String = ""

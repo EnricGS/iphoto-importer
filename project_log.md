@@ -612,3 +612,132 @@ Nou script `build.sh` que automatitza: `swift build -c release` → copia binari
 2. **ICDeviceBrowser callbacks:** El `didAdd` es crida un sol cop per l'iPhone (type=257 = camera+local). El segon "dispositiu" apareixia transitòriament durant el processament però desapareixia un cop completat.
 
 3. **logToFile path:** `NSHomeDirectory()` funciona dins l'app per escriure a `~/iphoto_import.log`. `/tmp/iphoto_debug.log` també funciona. El problema de "no trobar el log" era perquè s'executava el binari antic del `.app` en lloc del compilat amb `swift build`.
+
+## 2026-04-21 — Device-code flow: vinculació amb Mirat sense claus API
+
+### Context
+
+Mirat ha introduït un device-code flow (tipus GitHub CLI / Apple TV / Spotify
+Connect) que permet vincular clients desktop amb el compte de l'usuari sense
+demanar claus API manuals. Com que Mirat és un family album, els usuaris
+típics no poden gestionar `MIRAT_API_KEY` manualment: aquesta Fase 3 completa
+el cicle implementant el client del flux a les dues plataformes.
+
+### Versions i compatibilitat
+
+- **Cap trencament**: configuracions existents amb `ApiKey` segueixen funcionant.
+  El servidor de Mirat accepta tant `Authorization: Bearer mkd_...` com
+  `X-API-Key`, i els clients prioritzen el token si n'hi ha.
+- Els usuaris nous veuran el botó "Vincular amb Mirat (recomanat)" destacat.
+  L'opció manual queda com a "Afegir manualment (avançat)" per power users i
+  self-hosted sense compte Mirat.
+
+### Implementació .NET (iPhotoImporter Windows/WPF)
+
+**Nou fitxer `Services/MiratDeviceCodeClient.cs`**:
+- Client `HttpClient` independent de `MiratService` (no necessita grup_id).
+- `RequestDeviceCodeAsync(deviceName, ct)` → `DeviceCodeResponse` (device_code,
+  user_code, verification_url, interval, expires_in).
+- `PollForTokenAsync(deviceCode, interval, expiresAt, onProgress, ct)` →
+  retorna un `AuthorizationResult` terminal (Authorized / Expired / Revoked /
+  Cancelled). Gestió d'estats HTTP: 200 → decode TokenResponse, 202/429 →
+  continuar, 410 → diferencia revoked vs expired pel camp `status` del body,
+  404 → expired, altres → retry amb interval.
+- Gestió robusta: errors de xarxa transitoris fan retry en lloc d'avortar;
+  `OperationCanceledException` propaga correctament.
+- DTOs: `DeviceCodeResponse`, `TokenResponse`, `TokenUser`, `TokenGrup`,
+  `ErrorResponse`, enum `PollStatus`, `AuthorizationResult` amb factory methods.
+
+**Modificat `Models/MiratDestination.cs`**:
+- Afegits camps opcionals `AccessToken`, `UserId`, `UserName` al costat de
+  `ApiKey` (que es marca legacy al comentari). Cap canvi trencador al JSON
+  existent — els camps nous són `string?`.
+
+**Modificat `Services/MiratService.cs`**:
+- Constructor prioritza `dest.AccessToken` (envia `Authorization: Bearer`) per
+  sobre de `dest.ApiKey` (envia `X-API-Key`). Un dels dos ha d'estar present.
+
+### Implementació Swift (iPhotoManager macOS)
+
+**Nou fitxer `MacOS/iPhotoManager/Services/MiratDeviceCodeClient.swift`**:
+- Mateixa API que la versió .NET, adaptada a Swift 6 strict concurrency
+  (`Sendable` a tots els DTOs, `final class ... : Sendable`).
+- `requestDeviceCode(deviceName:)` i `pollForToken(deviceCode:intervalSeconds:
+  expiresAt:onProgress:)` amb `Task.sleep` respectant `Task.isCancelled`.
+- Polling loop funciona via `pollOnce()` que retorna `AuthorizationResult?` on
+  `nil` significa "continuar".
+
+**Modificat `MacOS/iPhotoManager/Models/MiratDestination.swift`**:
+- Camps nous `accessToken: String?`, `userId: String?`, `userName: String?`.
+
+**Modificat `MacOS/iPhotoManager/Services/MiratService.swift`**:
+- Nou helper privat `applyAuth(to: inout URLRequest)` que afegeix Bearer si hi
+  ha token, X-API-Key si n'hi ha apiKey. Cridat tant a GET `listGroups`/
+  `listAlbums` com al POST `uploadPhoto`.
+
+**Nou fitxer `MacOS/iPhotoManager/Views/ConnectMiratSheet.swift`**:
+- Sheet SwiftUI autocontinguda amb 4 estats: input, waiting, success, error.
+- **Input**: TextField pre-plenat amb `https://www.miratfotos.com`, botó
+  "Començar".
+- **Waiting**: mostra el `user_code` en gran (font `design: .monospaced`, 36pt)
+  i obre automàticament el navegador a `verificationUrlComplete` amb
+  `NSWorkspace.shared.open(url)`. Link clicable com a fallback. `ProgressView`
+  amb text "Esperant autorització...".
+- **Success**: checkmark, nom d'usuari, nom del grup, missatge per tornar a
+  iPhoto. El `MiratDestination` ja està desat al `viewModel` abans d'arribar
+  aquí.
+- **Error**: missatge + botó "Tornar a provar".
+- `onDisappear` cancel·la el `Task` de polling.
+- Nom del dispositiu: `Host.current().localizedName` (p.ex. "MacBook Pro d'Enric").
+
+**Modificat `MacOS/iPhotoManager/Views/MiratSettingsView.swift`**:
+- Botó primari "Vincular amb Mirat (recomanat)" al començament de la sheet que
+  obre el `ConnectMiratSheet`. El formulari manual (URL/ApiKey/Grup/Àlbum)
+  queda sota el títol "Afegir manualment (avançat)" per casos power-user.
+- Frame ampliat de 640 → 700 alt per encabir el botó nou sense quedar atapeït.
+
+### Validació
+
+- **Swift**: `swift build` ha completat sense errors. Només un warning
+  pre-existent a `MainViewModel.swift:224` no tocat per aquesta sessió.
+- **.NET**: sense toolchain local al Mac per validar; el codi es compilarà al
+  build Windows següent. Valido estàticament les signatures.
+
+### Seguretat i notes
+
+- **Persistència del token**: ara el `access_token` es guarda en clar al JSON
+  de `MiratDestinationStore` (ambdues plataformes). Per versions futures
+  hauria de passar a Keychain (macOS) / DPAPI (Windows). No és crític avui
+  perquè el JSON viu a `~/Library/Application Support` (macOS) o
+  `%LocalAppData%` (Windows) — no és accessible per altres usuaris del mateix
+  sistema sense privilegis.
+- **Revocació**: si el token queda invalidat (l'usuari el revoca des del
+  dashboard web de Mirat), el pròxim upload rebrà 401. Caldrà afegir un
+  handler que detecti el 401 i re-obri el `ConnectMiratSheet` automàticament.
+  Pendent per a una versió posterior.
+- **Self-hosted**: el flow funciona contra qualsevol instància de Mirat perquè
+  tots els endpoints `/api/desktop/*` són relatius al `baseUrl` del client.
+
+### Pendent
+
+- .NET: afegir botó "Vincular amb Mirat" a `MiratSettingsWindow.xaml` amb la
+  mateixa UX que `ConnectMiratSheet` de Swift. Actualment el client .NET té
+  les peces (model + client + servei) però no té la UI per iniciar el flux
+  — es pot fer manualment amb codi si cal.
+- Detecció automàtica de 401 → auto-reconnect sense que l'usuari hagi de
+  tornar a Ajustos.
+- Migrar token a Keychain/DPAPI.
+
+### Fitxers canviats
+
+**.NET**:
+- `Services/MiratDeviceCodeClient.cs` (NOU)
+- `Models/MiratDestination.cs` — afegits AccessToken/UserId/UserName
+- `Services/MiratService.cs` — prioritza Bearer sobre X-API-Key
+
+**Swift (macOS)**:
+- `MacOS/iPhotoManager/Services/MiratDeviceCodeClient.swift` (NOU)
+- `MacOS/iPhotoManager/Views/ConnectMiratSheet.swift` (NOU)
+- `MacOS/iPhotoManager/Models/MiratDestination.swift` — afegits accessToken/userId/userName
+- `MacOS/iPhotoManager/Services/MiratService.swift` — helper applyAuth
+- `MacOS/iPhotoManager/Views/MiratSettingsView.swift` — botó "Vincular amb Mirat"

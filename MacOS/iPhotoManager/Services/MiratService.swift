@@ -179,7 +179,7 @@ final class MiratService {
         }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue(destination.apiKey, forHTTPHeaderField: "X-API-Key")
+        applyAuth(to: &req)
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
         req.httpBody = body
@@ -209,9 +209,19 @@ final class MiratService {
             throw MiratError.invalidURL
         }
         var req = URLRequest(url: url)
-        req.setValue(destination.apiKey, forHTTPHeaderField: "X-API-Key")
+        applyAuth(to: &req)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         return try await session.data(for: req)
+    }
+
+    /// Aplica l'auth correcte a una request. Prioritza l'access token (device-code flow);
+    /// fallback a X-API-Key per configuracions legacy.
+    private func applyAuth(to request: inout URLRequest) {
+        if let token = destination.accessToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if !destination.apiKey.isEmpty {
+            request.setValue(destination.apiKey, forHTTPHeaderField: "X-API-Key")
+        }
     }
 
     private static func buildURL(base: String, path: String) -> URL? {
