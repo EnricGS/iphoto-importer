@@ -811,3 +811,70 @@ desplegada.
 
 - `15b259c` — `ConnectMiratSheet` auto-start sense input URL
 - `395651e` — `MiratSettingsView` simplificat (sense form manual, sense Editar)
+
+---
+
+## 2026-04-21 — Windows: paritat UI device-code flow
+
+### Context
+
+Replicat a WPF el que macOS ja tenia: UI de vinculació via device-code i
+simplificació de la pantalla de destins Mirat. Les peces del servidor i el
+client HTTP ja eren presents al pull (`MiratDeviceCodeClient.cs`,
+`MiratService.cs` amb Bearer, `MiratDestination.cs` amb `AccessToken`), però
+no hi havia manera d'engegar el flux des de la UI — el formulari manual d'API
+Key era l'única opció.
+
+### Fitxers nous
+
+- `ConnectMiratWindow.xaml` + `.xaml.cs` — diàleg de vinculació amb 3 estats
+  (waiting / success / error). Auto-arrenca al `Loaded`: demana device-code a
+  `MiratBaseUrl = https://www.miratfotos.com`, pinta el `user_code` en
+  `Consolas 36pt`, obre el navegador amb
+  `Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true })`
+  i fa polling via `MiratDeviceCodeClient.PollForTokenAsync`. El
+  `CancellationTokenSource` es cancel·la a `Window_Closed` per aturar el polling
+  si l'usuari tanca el diàleg. `Environment.MachineName` com a `device_name`.
+  Icones via `Segoe MDL2 Assets` (`&#xE73E;` checkmark, `&#xEB90;` error). Enllaç
+  clicable com a fallback si `Process.Start` falla.
+
+### Fitxers modificats
+
+- `MiratSettingsWindow.xaml` — eliminat tot el formulari manual (URL base,
+  API Key, "Provar connexió", ComboBox grup/àlbum, nom descriptiu, "Desar
+  destí"). Pantalla ara només té: capçalera + botó primari "Vincular amb Mirat"
+  + llista de destins vinculats amb botó "Eliminar" a cada fila + botó "Tancar"
+  al peu. Frame 560x620 → 500x460, `ResizeMode=NoResize`. Placeholder "Cap destí
+  configurat" quan la llista és buida.
+- `MiratSettingsWindow.xaml.cs` — reduït del flux complet de creació/edició
+  manual a només: obrir `ConnectMiratWindow`, mostrar la llista, eliminar. Es
+  suscriu a `MiratDestinations.CollectionChanged` per togglar el placeholder vs
+  la llista. Netejada la dependència de `MiratService`/`MiratGrup`/`MiratAlbum`
+  que ara no cal aquí.
+
+### Compatibilitat
+
+- Destins legacy creats amb API Key abans del device-code flow segueixen
+  apareixent a la llista i es poden eliminar igual. `MiratService` ja prioritza
+  `Bearer` sobre `X-API-Key`, així que tot funciona automàticament.
+- `MainViewModel` intacte: `AddOrUpdateMiratDestination`, `ActiveMiratDestination`,
+  `RemoveMiratDestinationCommand`, `MiratDestinations` ja existien des de
+  l'integració inicial.
+
+### Validació
+
+- **`dotnet build` correcte**: 0 errors, 54 avisos — tots `NU1901`/`NU1902`/
+  `NU1903` preexistents de `Magick.NET-Q8-AnyCPU` 14.11.1, no introduïts per
+  aquesta sessió. (SDK invocat des de `C:\Users\enricg\.dotnet\dotnet.exe` —
+  no és al PATH.)
+- **Sense prova real** contra `www.miratfotos.com` des de Windows — caldrà
+  fer-la abans de considerar-ho "desplegat".
+
+### Pendent
+
+- Detecció automàtica de 401 a `MiratService` → re-obrir `ConnectMiratWindow`
+  sense que l'usuari hagi de tornar a Ajustos (paritat amb macOS, també
+  pendent allà).
+- Migrar `AccessToken` de JSON en clar a DPAPI (Windows Data Protection API).
+- Eliminar el `MiratSettingsWindow.ShowOnTopCorner` o variants si apareixen
+  — la pantalla ara cap al frame 500x460.
