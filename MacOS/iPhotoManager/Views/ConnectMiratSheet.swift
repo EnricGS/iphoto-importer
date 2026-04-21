@@ -1,31 +1,30 @@
 import SwiftUI
 import AppKit
 
-/// Sheet amb el flux complet de vincular iPhoto Manager a un compte Mirat
-/// via device-code (OAuth-style, sense demanar claus API a l'usuari).
+/// Sheet amb el flux complet de vincular iPhoto Manager a Mirat via device-code.
 ///
 /// Passos:
-///   1. Input URL del servidor (o ús del default)
-///   2. Click "Començar" → crida /api/desktop/device-code
-///   3. Mostra user_code + obre el navegador automàticament a /vincular
-///   4. Polling a /api/desktop/token fins l'usuari autoritzar
-///   5. Crea un MiratDestination amb el access_token i el desa al ViewModel
+///   1. En obrir-se, crida automàticament /api/desktop/device-code
+///   2. Mostra user_code i obre el navegador a /vincular
+///   3. Polling fins rebre access_token o expiració
+///   4. Crea un MiratDestination i el desa al ViewModel
 ///
-/// L'usuari mai veu ni enganxa cap clau API.
+/// L'usuari mai veu ni enganxa cap clau API ni URL.
 struct ConnectMiratSheet: View {
     @Bindable var viewModel: MainViewModel
     @Binding var isPresented: Bool
 
-    // Stages
+    /// Host públic de Mirat. Es podria fer configurable via variable d'entorn
+    /// o ajust futur si calgués self-hosted, però per defecte és el públic.
+    private static let miratBaseUrl = "https://www.miratfotos.com"
+
     private enum Stage {
-        case input      // demanant la URL
         case waiting    // mostrant user_code i fent polling
         case success    // autoritzat
         case error(String)
     }
 
-    @State private var stage: Stage = .input
-    @State private var baseUrl: String = "https://www.miratfotos.com"
+    @State private var stage: Stage = .waiting
     @State private var deviceCode: DeviceCodeResponse?
     @State private var pollTask: Task<Void, Never>?
     @State private var authorizedToken: TokenResponse?
@@ -36,8 +35,6 @@ struct ConnectMiratSheet: View {
 
             ScrollView {
                 switch stage {
-                case .input:
-                    inputSection
                 case .waiting:
                     waitingSection
                 case .success:
@@ -53,8 +50,11 @@ struct ConnectMiratSheet: View {
             footer
         }
         .padding(20)
-        .frame(width: 480, height: 480)
+        .frame(width: 480, height: 440)
         .background(Color.bgBase)
+        .task {
+            await beginFlow()
+        }
         .onDisappear {
             pollTask?.cancel()
         }
@@ -67,44 +67,12 @@ struct ConnectMiratSheet: View {
             Text("Vincular amb Mirat")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(Color.textPrimary)
-            Text("Connecta iPhoto Manager amb el teu compte de Mirat en tres passos.")
+            Text("Connecta iPhoto Manager amb el teu compte de Mirat.")
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, 14)
-    }
-
-    private var inputSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Servidor Mirat")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.textSecondary)
-            TextField("", text: $baseUrl)
-                .textFieldStyle(.plain)
-                .padding(8)
-                .background(Color.bgSurface)
-                .foregroundStyle(Color.textPrimary)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.borderSubtle))
-                .font(.system(size: 12))
-
-            Text("Per a la instància pública usa el valor per defecte. Per a servidors propis (self-hosted), canvia la URL.")
-                .font(.system(size: 10))
-                .foregroundStyle(Color.textDim)
-                .padding(.top, 4)
-
-            Button {
-                Task { await beginFlow() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "link")
-                    Text("Començar")
-                }
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(baseUrl.trimmingCharacters(in: .whitespaces).isEmpty)
-            .padding(.top, 12)
-        }
     }
 
     private var waitingSection: some View {
@@ -148,6 +116,7 @@ struct ConnectMiratSheet: View {
                 .padding(.top, 8)
             } else {
                 ProgressView()
+                    .padding(.top, 40)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -203,8 +172,7 @@ struct ConnectMiratSheet: View {
                 .multilineTextAlignment(.center)
 
             Button {
-                stage = .input
-                deviceCode = nil
+                Task { await beginFlow() }
             } label: {
                 Text("Tornar a provar")
             }
@@ -237,16 +205,17 @@ struct ConnectMiratSheet: View {
 
     @MainActor
     private func beginFlow() async {
-        let url = baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
+        pollTask?.cancel()
+        stage = .waiting
+        deviceCode = nil
+        authorizedToken = nil
 
         let deviceName = Self.currentDeviceName()
-        let client = MiratDeviceCodeClient(baseUrl: url)
+        let client = MiratDeviceCodeClient(baseUrl: Self.miratBaseUrl)
 
         do {
             let dc = try await client.requestDeviceCode(deviceName: deviceName)
             deviceCode = dc
-            stage = .waiting
 
             // Obre el navegador a la pàgina de vinculació amb el codi
             if let openUrl = URL(string: dc.verificationUrlComplete) {
@@ -254,14 +223,13 @@ struct ConnectMiratSheet: View {
             }
 
             // Polling en background
-            pollTask?.cancel()
             pollTask = Task { @MainActor in
                 let result = await client.pollForToken(
                     deviceCode: dc.deviceCode,
                     intervalSeconds: dc.interval,
                     expiresAt: dc.expiresAt
                 )
-                await handleResult(result, baseUrl: url, deviceName: deviceName)
+                await handleResult(result, deviceName: deviceName)
             }
         } catch {
             stage = .error(error.localizedDescription)
@@ -269,7 +237,7 @@ struct ConnectMiratSheet: View {
     }
 
     @MainActor
-    private func handleResult(_ result: AuthorizationResult, baseUrl: String, deviceName: String) async {
+    private func handleResult(_ result: AuthorizationResult, deviceName: String) async {
         switch result {
         case .authorized(let token):
             authorizedToken = token
@@ -277,9 +245,8 @@ struct ConnectMiratSheet: View {
                 stage = .error("Resposta incompleta del servidor.")
                 return
             }
-            // Creem un destí amb el token (sense ApiKey) i el desem
             var dest = MiratDestination()
-            dest.baseUrl = baseUrl
+            dest.baseUrl = Self.miratBaseUrl
             dest.accessToken = access
             dest.apiKey = ""
             dest.grupId = grup.id
@@ -294,7 +261,7 @@ struct ConnectMiratSheet: View {
             stage = .success
 
         case .expired:
-            stage = .error("El codi ha caducat. Torna a començar.")
+            stage = .error("El codi ha caducat. Torna a provar.")
         case .revoked:
             stage = .error("La sessió s'ha revocat abans d'utilitzar-la.")
         case .cancelled:
