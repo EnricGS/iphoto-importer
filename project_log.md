@@ -741,3 +741,73 @@ el cicle implementant el client del flux a les dues plataformes.
 - `MacOS/iPhotoManager/Models/MiratDestination.swift` — afegits accessToken/userId/userName
 - `MacOS/iPhotoManager/Services/MiratService.swift` — helper applyAuth
 - `MacOS/iPhotoManager/Views/MiratSettingsView.swift` — botó "Vincular amb Mirat"
+
+## 2026-04-21 — Sessió d'integració end-to-end device-code flow (macOS)
+
+### Context
+
+Primera vinculació funcional contra `www.miratfotos.com` en producció. Iteració
+de diverses correccions sobre el flow inicial per arribar a una UX neta.
+
+### Resultat final
+
+L'usuari obre iPhoto Manager, clica **"Vincular amb Mirat"**, autoritza al
+navegador i ja pot pujar fotos al seu compte. Sense claus API, sense URLs,
+sense camps tècnics visibles. Token guardat local (JSON). Funcionalitat
+confirmada amb pantalla d'èxit mostrant "MacBook Pro de Enric · Família".
+
+### Iteracions i correccions d'aquesta sessió
+
+**1. `ConnectMiratSheet` auto-start (commit `15b259c`)**
+
+L'usuari va reportar "no cal que demani el host, només hi ha host public". Es
+va eliminar el stage `input` del sheet: el flow comença automàticament via
+`.task` quan s'obre la sheet. Ara hi ha 3 estats (waiting/success/error) en
+comptes de 4. `miratBaseUrl` hardcoded a `https://www.miratfotos.com`.
+
+**2. MiratSettingsView netejat (commit `395651e`)**
+
+L'usuari va voler eliminar tota la UI manual. Pantalla Destins Mirat ara només
+té: capçalera + botó "Vincular amb Mirat" + llista de destins vinculats amb
+Eliminar. El form manual sencer (URL, API Key, Provar connexió, Grup, Àlbum,
+Nom descriptiu, Desar) s'ha eliminat. També el botó Editar dels destins
+(sense form no serveix — elimina i torna a vincular). Frame 700 → 440 alt.
+
+Configs legacy creades amb API Key abans del flow es llegeixen igual i apareixen
+a la llista. Com que `MiratService` prioritza Bearer sobre X-API-Key, les noves
+sempre usaran token; les antigues continuen funcionant amb X-API-Key.
+
+### Debugging realitzat
+
+Mentre es provava, van sortir un seguit de problemes al costat servidor (Mirat)
+que ens van obligar a iterar allà (veure mirat/project_log.md). Especialment
+crític: el flux OTP de Mirat perdia el `?next=/vincular?code=X` i l'usuari
+acabava al dashboard sense veure la pantalla de vinculació. Un cop arreglat
+també el flow per usuaris que entren via slug (form A de /registre), tot ha
+quedat connectat.
+
+### Versió Windows (.NET) pendent d'actualització
+
+La versió Windows té les peces del device-code (model amb AccessToken,
+`MiratDeviceCodeClient.cs`, `MiratService.cs` amb Bearer), però **la UI encara
+no té botó "Vincular amb Mirat"**. Cal afegir-hi l'equivalent de
+`ConnectMiratSheet` per WPF:
+
+- Nou diàleg `ConnectMiratWindow.xaml` amb 3 estats (waiting/success/error)
+- Obrir navegador via `Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true })`
+- Polling via `Task.Run` + `CancellationToken` aplicat a `MiratDeviceCodeClient.PollForTokenAsync`
+- A `MiratSettingsWindow.xaml`: botó primari "Vincular amb Mirat (recomanat)"
+  al començament, i netejar també el form manual (mateix criteri que la versió
+  macOS)
+- Al rebre el token, crear `MiratDestination` amb `AccessToken` (no `ApiKey`),
+  `GrupId`, `GrupNom`, `UserId`, `UserName`, desar-lo via `MiratDestinationStore`
+- Mantenir compatibilitat amb les configs legacy existents (igual que macOS)
+
+Mentre no es faci, la versió Windows funciona amb claus API manuals com
+abans — però cap usuari familiar no l'hauria d'usar fins que la UI nova estigui
+desplegada.
+
+### Commits d'aquesta sessió
+
+- `15b259c` — `ConnectMiratSheet` auto-start sense input URL
+- `395651e` — `MiratSettingsView` simplificat (sense form manual, sense Editar)
