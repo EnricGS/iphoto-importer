@@ -1,5 +1,37 @@
 # iPhotoManager — Project Log
 
+## 2026-05-02 — Fix penjada en desconnectar iPhone + selector destí Mirat visible
+
+### Problema 1: app es penja en desenxufar l'iPhone durant browse
+
+Quan l'usuari tenia l'iPhone seleccionat com a font (mode `isDeviceBrowseMode`) i el desconnectava, la UI quedava bloquejada fins a 30s o indefinidament:
+
+- `DeviceImportService.didRemove` netejava la llista de dispositius però **no resolia** les continuations en curs (`thumbnailContinuations`, `tempDownloadContinuations`, `metadataContinuations`, `downloadContinuation`, `deleteContinuation`).
+- `sessionContinuation` i `catalogContinuation` no tenien cap timeout — podien quedar penjades per sempre.
+- `closeSession()` cridava `requestCloseSession()` sobre un `ICCameraDevice` ja desaparegut.
+
+### Fix (`Services/DeviceImportService.swift`)
+
+- Nou helper `cancelAllPendingContinuations()` que resol totes les continuations actives (sessió, catàleg, downloads, thumbnails, metadata, delete) amb valors per defecte (`nil`/`false`/`()`).
+- `didRemove`: quan el dispositiu eliminat és el seleccionat, drena pendents abans de tocar l'estat, neteja `selectedDevice`, posa `isImporting=false`/`isBrowsing=false`, i només llavors notifica `onDeviceDisconnected`.
+- `closeSession`: drena pendents primer, i només envia `requestCloseSession` si el dispositiu encara és present a `browser?.devices`.
+- Afegits timeouts a `sessionContinuation` (30s en import, 15s per intent en browse) per impedir bloquejos infinits si el callback `device(_:didOpenSessionWithError:)` no torna mai.
+
+### Problema 2: selector de destí Mirat invisible
+
+`MiratDestinationPicker` al toolbar només mostrava un `chevron.down` de mida 8pt sense text. Els usuaris no s'adonaven que era un botó per triar el destí.
+
+### Fix (`Views/ToolbarView.swift`)
+
+- Picker amb etiqueta de text llegible: "Triar destí Mirat" quan no hi ha actiu, o el nom del destí actual amb fons accent quan n'hi ha un seleccionat.
+- Substituït el chip duplicat (nom + X) per un sol botó `xmark.circle.fill` per desactivar — evita mostrar el nom dues vegades.
+
+### Build
+
+`./build.sh` OK (warning preexistent de `enumerator.makeIterator` no relacionat).
+
+---
+
 ## 2026-04-18 — Paritat macOS: integració Mirat replicada
 
 ### Context

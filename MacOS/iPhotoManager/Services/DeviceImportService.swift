@@ -130,6 +130,13 @@ final class DeviceImportService: NSObject {
         let opened = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             sessionContinuation = cont
             icDevice.requestOpenSession()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                if let self, let pending = self.sessionContinuation {
+                    self.sessionContinuation = nil
+                    logToFile("[Import] Open session TIMEOUT")
+                    pending.resume(returning: false)
+                }
+            }
         }
         logToFile("[Import] Session opened: \(opened)")
 
@@ -226,6 +233,13 @@ final class DeviceImportService: NSObject {
             opened = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
                 sessionContinuation = cont
                 icDevice.requestOpenSession()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+                    if let self, let pending = self.sessionContinuation {
+                        self.sessionContinuation = nil
+                        logToFile("[Browse] Open session TIMEOUT (attempt \(attempt))")
+                        pending.resume(returning: false)
+                    }
+                }
             }
             logToFile("[Browse] Attempt \(attempt) result: \(opened)")
 
@@ -450,12 +464,50 @@ final class DeviceImportService: NSObject {
 
     /// Closes the active device session.
     func closeSession() {
-        guard let device = selectedDevice else { return }
+        cancelAllPendingContinuations()
+        guard let device = selectedDevice else {
+            isBrowsing = false
+            return
+        }
         let icDevice = device.icDevice
-        if icDevice.hasOpenSession {
+        // Only attempt to close if the device is still present in the browser.
+        let stillConnected = browser?.devices?.contains(where: { $0 === icDevice }) ?? false
+        if stillConnected && icDevice.hasOpenSession {
             icDevice.requestCloseSession()
         }
         isBrowsing = false
+    }
+
+    /// Resumes every awaiting continuation so that callers don't block when the
+    /// device disappears mid-operation. Safe to call multiple times.
+    private func cancelAllPendingContinuations() {
+        if let cont = sessionContinuation {
+            sessionContinuation = nil
+            cont.resume(returning: false)
+        }
+        if let cont = catalogContinuation {
+            catalogContinuation = nil
+            cont.resume()
+        }
+        if let cont = downloadContinuation {
+            downloadContinuation = nil
+            cont.resume()
+        }
+        if let cont = deleteContinuation {
+            deleteContinuation = nil
+            cont.resume()
+        }
+        let pendingThumbs = thumbnailContinuations
+        thumbnailContinuations.removeAll()
+        for (_, cont) in pendingThumbs { cont.resume(returning: nil) }
+
+        let pendingTemps = tempDownloadContinuations
+        tempDownloadContinuations.removeAll()
+        for (_, cont) in pendingTemps { cont.resume() }
+
+        let pendingMeta = metadataContinuations
+        metadataContinuations.removeAll()
+        for (_, cont) in pendingMeta { cont.resume(returning: nil) }
     }
 
     // MARK: - Download callback
@@ -642,11 +694,24 @@ extension DeviceImportService: ICDeviceDelegate {
         Task { @MainActor in
             let key = deviceDeduplicationKey(for: device)
             let removedDevice = devices.first { deviceDeduplicationKey(for: $0.icDevice as ICDevice) == key }
-            let wasBrowsing = isBrowsing && selectedDevice?.id == removedDevice?.id
+            let wasSelected = selectedDevice?.id == removedDevice?.id
+            let wasBrowsing = isBrowsing && wasSelected
+
+            // Drenar totes les operacions pendents abans de tocar l'estat —
+            // si no, qualsevol await contra el dispositiu desaparegut bloqueja
+            // la UI fins al timeout (o per sempre, en sessionContinuation /
+            // catalogContinuation).
+            if wasSelected {
+                cancelAllPendingContinuations()
+                selectedDevice = nil
+                isImporting = false
+                isBrowsing = false
+            }
+
             knownDeviceKeys.remove(key)
             devices.removeAll { deviceDeduplicationKey(for: $0.icDevice as ICDevice) == key }
+
             if wasBrowsing {
-                isBrowsing = false
                 onDeviceDisconnected?()
             }
         }

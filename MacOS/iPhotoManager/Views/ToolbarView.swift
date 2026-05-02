@@ -172,31 +172,17 @@ struct ToolbarView: View {
                 MiratDestinationPicker(viewModel: viewModel)
             }
 
-            // Chip del destí actiu + X per desactivar
+            // Botó X per desactivar el destí Mirat actiu
             if viewModel.hasActiveMiratDestination {
-                HStack(spacing: 4) {
-                    Text(viewModel.activeMiratLabel)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.accent)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 160)
-                        .help(viewModel.activeMiratLabel)
-
-                    Button {
-                        viewModel.selectMiratDestination(nil)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Color.textDim)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Desactivar destí Mirat")
+                Button {
+                    viewModel.selectMiratDestination(nil)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.textDim)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.accentSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .buttonStyle(.plain)
+                .help("Desactivar destí Mirat")
             }
 
             // iPhone import button
@@ -483,19 +469,31 @@ struct MiratDestinationPicker: View {
             }
         } label: {
             HStack(spacing: 4) {
+                Text(pickerLabel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(viewModel.hasActiveMiratDestination ? Color.accent : Color.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8))
                     .foregroundStyle(Color.textDim)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .background(Color.bgElevated)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(viewModel.hasActiveMiratDestination ? Color.accentSubtle : Color.bgElevated)
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Triar destí Mirat actiu")
+    }
+
+    private var pickerLabel: String {
+        if let active = viewModel.activeMiratDestination {
+            return active.nom.isEmpty ? active.displayLabel : active.nom
+        }
+        return "Triar destí Mirat"
     }
 }
 
