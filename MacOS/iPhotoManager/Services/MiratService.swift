@@ -4,6 +4,9 @@ import ImageIO
 import UniformTypeIdentifiers
 import AppKit
 import AVFoundation
+import os.log
+
+private let videoThumbLog = Logger(subsystem: "com.iphotomanager.app", category: "video-thumbs")
 
 // MARK: - DTOs
 
@@ -266,11 +269,18 @@ final class MiratService {
     /// accepta thumbnail nul per a vídeos).
     nonisolated static func generateThumbAndPreview(path: String) -> (thumb: Data, preview: Data, width: Int, height: Int) {
         let url = URL(fileURLWithPath: path)
+        // Discriminem per extensió, NO per qui pot obrir el fitxer. Alguns
+        // .MOV de l'iPhone tenen un poster embedded i ImageIO els obre
+        // sense problemes — però el contingut útil és el vídeo, no el poster.
+        let ext = url.pathExtension.lowercased()
+        if PhotoItem.videoExtensions.contains(ext) {
+            return generateFromVideo(url: url)
+        }
         if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
             return generateFromImageSource(source)
         }
-        // No és imatge: provem com a vídeo
-        return generateFromVideo(url: url)
+        videoThumbLog.error("Fitxer ni vídeo ni imatge reconeguda: \(url.lastPathComponent, privacy: .public)")
+        return (Data(), Data(), 0, 0)
     }
 
     private nonisolated static func generateFromImageSource(_ source: CGImageSource) -> (thumb: Data, preview: Data, width: Int, height: Int) {
@@ -289,60 +299,43 @@ final class MiratService {
         return (thumb, preview, width, height)
     }
 
-    /// Extreu un frame del vídeo (1 segon o més enrere si dura menys) i el
-    /// retorna com a JPEG de 200px (thumb) i 2048px (preview).
+    /// Genera thumb + preview per a un vídeo reusant `FileService.generateVideoThumbnail`,
+    /// que és el mateix camí que ja s'usa a la graella d'iPhoto Manager i sabem
+    /// que funciona per a MP4, MOV, M4V, AVI, MKV. Converteix l'NSImage resultant
+    /// a JPEG via NSBitmapImageRep (mateixa via que ThumbnailCacheService).
     private nonisolated static func generateFromVideo(url: URL) -> (thumb: Data, preview: Data, width: Int, height: Int) {
-        let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 2048, height: 2048)
+        let fs = FileService()
+        let path = url.path
 
-        // Triem t=1s o la meitat de la durada si és més curt.
-        let duration = CMTimeGetSeconds(asset.duration)
-        let targetSeconds = duration.isFinite && duration > 0 ? min(1.0, max(0.0, duration / 2)) : 0.0
-        let time = CMTime(seconds: targetSeconds, preferredTimescale: 600)
-
-        var actualTime = CMTime.zero
-        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: &actualTime) else {
+        // Preview 2048px (frame 0 — sempre vàlid, sense problemes de keyframes)
+        guard let previewImage = fs.generateVideoThumbnail(for: path, maxSize: 2048) else {
+            videoThumbLog.error("FileService.generateVideoThumbnail returned nil for \(url.lastPathComponent, privacy: .public)")
             return (Data(), Data(), 0, 0)
         }
+        let width = Int(previewImage.size.width)
+        let height = Int(previewImage.size.height)
 
-        let width = cgImage.width
-        let height = cgImage.height
-        let preview = encodeJPEG(cgImage: cgImage, maxPixel: 2048, quality: 0.80) ?? Data()
-        let thumb = encodeJPEG(cgImage: cgImage, maxPixel: 200, quality: 0.70) ?? Data()
-        return (thumb, preview, width, height)
+        let previewData = nsImageToJPEG(previewImage, quality: 0.80) ?? Data()
+
+        // Thumb 200px — segona crida, AVFoundation aprofita el descodificador en cache
+        let thumbImage = fs.generateVideoThumbnail(for: path, maxSize: 200) ?? previewImage
+        let thumbData = nsImageToJPEG(thumbImage, quality: 0.70) ?? Data()
+
+        return (thumbData, previewData, width, height)
     }
 
-    /// Codifica un CGImage com a JPEG redimensionat. Fa servir ImageIO per
-    /// reaprofitar la mateixa via que `createJPEG(source:)`.
-    private nonisolated static func encodeJPEG(cgImage: CGImage, maxPixel: Int, quality: Double) -> Data? {
-        let w = cgImage.width
-        let h = cgImage.height
-        let scale = min(1.0, Double(maxPixel) / Double(max(w, h)))
-        let targetW = max(1, Int(Double(w) * scale))
-        let targetH = max(1, Int(Double(h) * scale))
-
-        guard let cs = cgImage.colorSpace, let ctx = CGContext(
-            data: nil,
-            width: targetW,
-            height: targetH,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: cs,
-            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue,
-        ) else { return nil }
-        ctx.interpolationQuality = .high
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
-        guard let scaled = ctx.makeImage() else { return nil }
-
-        let data = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+    /// Converteix un NSImage a JPEG bytes. Mateixa via que
+    /// `ThumbnailCacheService.saveToDisk`, que sabem que funciona amb els
+    /// thumbnails de la graella (provat amb totes les extensions suportades).
+    private nonisolated static func nsImageToJPEG(_ image: NSImage, quality: Double) -> Data? {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: NSNumber(value: quality)])
+        else {
+            videoThumbLog.error("NSBitmapImageRep JPEG conversion failed")
             return nil
         }
-        CGImageDestinationAddImage(dest, scaled, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return data as Data
+        return jpeg
     }
 
     private nonisolated static func createJPEG(source: CGImageSource, maxPixel: Int, quality: Double) -> Data? {

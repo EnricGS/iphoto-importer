@@ -1088,3 +1088,48 @@ Triar un MP4 a iPhotoManager al Windows, pujar-lo a Mirat. Verificar:
 
 - Bug original i fix macOS: aquest mateix `project_log.md`, entrada 2026-05-16.
 - Servidor Mirat (accepta vídeos sense thumbnail): `mirat/project_log.md` entrada 2026-05-16, commit `acd46d6`.
+
+## 2026-05-16 — Fix vídeos macOS (continuació): detectar per extensió, reusar FileService
+
+Després del primer fix amb AVFoundation + CGContext, els uploads de vídeos seguien arribant sense miniatura. Dos bugs encadenats:
+
+### Bug A: detecció ingènua "imatge o vídeo"
+
+`generateThumbAndPreview` decidia si el fitxer era imatge o vídeo fent `CGImageSourceCreateWithURL(url)` i caient a vídeo si retornava nil. Però els `.MOV` de l'iPhone tenen un **poster JPEG embedded** (Live-Photos-like) i ImageIO els obre sense problemes — el codi entrava a la branca d'imatge i extreia el poster (que no és el frame del vídeo).
+
+**Fix**: discriminar per extensió, fent servir `PhotoItem.videoExtensions` que ja existia al projecte. Si l'extensió és `mp4`, `mov`, `m4v`, `avi`, `mkv`, `webm` → sempre va a `generateFromVideo`.
+
+### Bug B: CGContext + DeviceRGB fràgil per a frames de vídeo
+
+La meva primera implementació de `generateFromVideo` cridava `AVAssetImageGenerator.copyCGImage` i després passava el CGImage per un `CGContext` per escalar i codificar a JPEG. Els frames d'AVFoundation venen en color spaces de vídeo (YCbCr / BT.709), que `CGContext(..., space: cgImage.colorSpace)` no acceptava correctament amb `noneSkipLast`. Encara forçant `DeviceRGB`, el draw fallava silenciosament en alguns formats.
+
+**Fix**: reescrita `generateFromVideo` per reutilitzar `FileService.generateVideoThumbnail(for:maxSize:)`, que és exactament el camí que ja s'usa a la graella d'iPhoto Manager i sabem que funciona. Converteix l'NSImage resultant a JPEG via `NSBitmapImageRep` (mateixa via que `ThumbnailCacheService.saveToDisk`).
+
+### Diagnòstic
+
+L'ús de `Logger(subsystem: "com.iphotomanager.app", category: "video-thumbs")` amb nivell `.notice` (els `.info` són memory-only i no apareixen a `log show`) va permetre veure el flux real:
+
+```
+generateThumbAndPreview start: IMG_0739.MOV
+→ tractant com a imatge (ImageIO obre el fitxer)   ← BUG! Cap a la branca incorrecta
+```
+
+Després del fix per extensió:
+```
+generateThumbAndPreview start: IMG_0739.MOV
+→ tractant com a vídeo (extensió mov)
+```
+I la miniatura va aparèixer al dashboard de Mirat. ✅
+
+### Notes per al futur
+
+- `Logger.info()` no persisteix per defecte; per a debug post-mortem cal `.notice` o superior, o configurar el subsystem amb `log config --subsystem com.iphotomanager.app --mode "level:debug,persist:debug"`.
+- Per a detectar "imatge vs vídeo" no fer servir "qui pot obrir el fitxer" — usar sempre extensió o UTType. ImageIO obre molts containers de vídeo perquè hi llegeix posters/covers.
+- `FileService.generateVideoThumbnail` ja era la solució correcta — no calia reimplementar-la. Lliçó: abans d'escriure codi de tractament d'imatge/vídeo en aquest repo, mirar si `FileService` ja en té una versió.
+
+### Commits a aquesta sessió
+
+- `7cc2630` — `fix(macos): generar thumbnail per videos amb AVFoundation` (primera versió, fràgil).
+- `d4da8a2` — `fix(windows): no enviar thumbnail buit per videos + doc al log`.
+- `7d6fad8` — `docs(log): TODO Windows fase 2 — thumbnails de videos amb Shell`.
+- (pendent en aquest commit) — `fix(macos): detectar per extensio + reusar FileService`.
