@@ -149,10 +149,16 @@ public class MiratService : IDisposable
             var safeName = AsciiSafe(Path.GetFileName(photo.FullPath));
             form.Add(fotoContent, "foto", safeName);
 
-            // Thumbnail (sempre JPEG)
-            var thumbContent = new ByteArrayContent(thumbBytes);
-            thumbContent.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-            form.Add(thumbContent, "thumbnail", "thumbnail.jpg");
+            // Thumbnail (opcional — Magick.NET no genera thumbnail per a vídeos
+            // i retorna bytes buits. El servidor accepta uploads sense thumbnail
+            // per a MIME video/*; per a imatges segueix sent obligatori al
+            // servidor i hauria d'arribar sempre.)
+            if (thumbBytes.Length > 0)
+            {
+                var thumbContent = new ByteArrayContent(thumbBytes);
+                thumbContent.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                form.Add(thumbContent, "thumbnail", "thumbnail.jpg");
+            }
 
             // Preview (opcional si falla la generació)
             if (previewBytes.Length > 0)

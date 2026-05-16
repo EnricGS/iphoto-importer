@@ -910,3 +910,44 @@ Key era l'única opció.
 - Migrar `AccessToken` de JSON en clar a DPAPI (Windows Data Protection API).
 - Eliminar el `MiratSettingsWindow.ShowOnTopCorner` o variants si apareixen
   — la pantalla ara cap al frame 500x460.
+
+## 2026-05-16 — Suport thumbnails de vídeos a l'upload Mirat
+
+### Problema
+
+Els uploads de vídeos a Mirat fallaven amb 400 "Falta thumbnail":
+
+- **macOS**: `generateThumbAndPreview` usa `CGImageSourceCreateWithURL`, que només llegeix imatges. Per a vídeos retorna `(Data(), Data(), 0, 0)` i el codi multipart feia `if !thumbBytes.isEmpty { appendFile("thumbnail"...) }`, de manera que el camp no s'enviava → servidor refusava.
+- **Windows**: `GenerateThumbAndPreview` usa Magick.NET, que tampoc obre vídeos. L'excepció es capturava i retornava bytes buits, però al multipart **sempre** s'afegia el `thumbnail` encara que estigués buit — el servidor rebia un fitxer de 0 bytes (pitjor: l'acceptava i guardava un blob inservible).
+
+### Fix macOS (`MacOS/iPhotoManager/Services/MiratService.swift`)
+
+Importat `AVFoundation`. Nova `generateFromVideo(url:)` que:
+
+1. Crea `AVURLAsset` i `AVAssetImageGenerator` amb `appliesPreferredTrackTransform = true` (respecta rotació).
+2. Extreu un frame a t=1s (o la meitat de la durada si el vídeo és més curt).
+3. L'escala via `CGContext` i el codifica a JPEG amb `CGImageDestination`. Genera thumb 200px @ q70 i preview 2048px @ q80.
+
+`generateThumbAndPreview` ara prova primer ImageIO; si retorna nil, cau a AVFoundation. Funciona per a MP4, MOV, M4V, AVI, MKV (els formats que macOS reconeix natives via AVFoundation).
+
+Compilat amb `./build.sh` i instal·lat — el Dock apunta directament al bundle del repo.
+
+### Fix Windows (`Services/MiratService.cs`)
+
+Per ara, només condicionar `thumbnail` a `thumbBytes.Length > 0` per evitar enviar un fitxer buit. Magick.NET segueix sense generar thumbnails per a vídeos, així que el servidor rebrà l'upload sense `thumbnail`. El nou fix server-side a Mirat (commit `acd46d6` allà) l'accepta sense problema.
+
+**Fase 2 pendent al Windows**: generar thumbnail real des d'un frame del vídeo. Opcions:
+
+1. `IShellItemImageFactory` (Windows Shell, nadiu, sense dependències extra): l'Explorer ja sap mostrar miniatures de vídeos, podem invocar la mateixa API via P/Invoke o un paquet wrapper.
+2. FFMpegCore + ffmpeg al PATH: més potent però afegeix dependència externa.
+
+Opció 1 recomanada quan toqui.
+
+### Servidor Mirat — fix paral·lel
+
+Per defensa robusta, `/api/external/upload` ara accepta MIME `video/*` sense thumbnail (commit `acd46d6` al repo mirat). `thumbnailPath` queda `null` a la DB i el frontend mostra fallback (icona de play sobre fons fosc).
+
+### Commits
+
+- macOS: `7cc2630` — `fix(macos): generar thumbnail per videos amb AVFoundation`.
+- Windows: pendent (en aquest mateix commit, després d'aquesta entrada).
