@@ -3,6 +3,7 @@ import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
 import AppKit
+import AVFoundation
 
 // MARK: - DTOs
 
@@ -258,16 +259,21 @@ final class MiratService {
 
     // MARK: - Thumbnail + preview (ImageIO)
 
-    /// Genera thumbnail ~200px q70 i preview ~2048px q80 via ImageIO.
-    /// Respecta l'orientació EXIF amb `kCGImageSourceCreateThumbnailWithTransform`.
-    /// Si falla la conversió, retorna arrays buits (l'upload pot continuar sense preview).
+    /// Genera thumbnail ~200px q70 i preview ~2048px q80.
+    /// Per a imatges fa servir ImageIO i respecta l'orientació EXIF.
+    /// Per a vídeos extreu un frame amb AVAssetImageGenerator (t=1s) i el
+    /// converteix a JPEG. Si tot falla, retorna arrays buits (el servidor
+    /// accepta thumbnail nul per a vídeos).
     nonisolated static func generateThumbAndPreview(path: String) -> (thumb: Data, preview: Data, width: Int, height: Int) {
         let url = URL(fileURLWithPath: path)
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            return (Data(), Data(), 0, 0)
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+            return generateFromImageSource(source)
         }
+        // No és imatge: provem com a vídeo
+        return generateFromVideo(url: url)
+    }
 
-        // Dimensions originals, aplicant rotació segons EXIF (5..8 = rotada 90°/270°)
+    private nonisolated static func generateFromImageSource(_ source: CGImageSource) -> (thumb: Data, preview: Data, width: Int, height: Int) {
         var width = 0
         var height = 0
         if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] {
@@ -278,10 +284,65 @@ final class MiratService {
                 let tmp = width; width = height; height = tmp
             }
         }
-
         let thumb = createJPEG(source: source, maxPixel: 200, quality: 0.70) ?? Data()
         let preview = createJPEG(source: source, maxPixel: 2048, quality: 0.80) ?? Data()
         return (thumb, preview, width, height)
+    }
+
+    /// Extreu un frame del vídeo (1 segon o més enrere si dura menys) i el
+    /// retorna com a JPEG de 200px (thumb) i 2048px (preview).
+    private nonisolated static func generateFromVideo(url: URL) -> (thumb: Data, preview: Data, width: Int, height: Int) {
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 2048, height: 2048)
+
+        // Triem t=1s o la meitat de la durada si és més curt.
+        let duration = CMTimeGetSeconds(asset.duration)
+        let targetSeconds = duration.isFinite && duration > 0 ? min(1.0, max(0.0, duration / 2)) : 0.0
+        let time = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+
+        var actualTime = CMTime.zero
+        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: &actualTime) else {
+            return (Data(), Data(), 0, 0)
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        let preview = encodeJPEG(cgImage: cgImage, maxPixel: 2048, quality: 0.80) ?? Data()
+        let thumb = encodeJPEG(cgImage: cgImage, maxPixel: 200, quality: 0.70) ?? Data()
+        return (thumb, preview, width, height)
+    }
+
+    /// Codifica un CGImage com a JPEG redimensionat. Fa servir ImageIO per
+    /// reaprofitar la mateixa via que `createJPEG(source:)`.
+    private nonisolated static func encodeJPEG(cgImage: CGImage, maxPixel: Int, quality: Double) -> Data? {
+        let w = cgImage.width
+        let h = cgImage.height
+        let scale = min(1.0, Double(maxPixel) / Double(max(w, h)))
+        let targetW = max(1, Int(Double(w) * scale))
+        let targetH = max(1, Int(Double(h) * scale))
+
+        guard let cs = cgImage.colorSpace, let ctx = CGContext(
+            data: nil,
+            width: targetW,
+            height: targetH,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: cs,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue,
+        ) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
+        guard let scaled = ctx.makeImage() else { return nil }
+
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(dest, scaled, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
     }
 
     private nonisolated static func createJPEG(source: CGImageSource, maxPixel: Int, quality: Double) -> Data? {
