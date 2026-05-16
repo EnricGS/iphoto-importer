@@ -368,7 +368,7 @@ public partial class MainViewModel : ObservableObject
         MiratUploadProgress = 0;
         HasError = false;
 
-        using var svc = new MiratService(dest);
+        using var svc = new MiratService(dest, _thumbnailCache);
 
         var total = photos.Count;
         var uploaded = 0;

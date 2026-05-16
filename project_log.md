@@ -1133,3 +1133,57 @@ I la miniatura va aparèixer al dashboard de Mirat. ✅
 - `d4da8a2` — `fix(windows): no enviar thumbnail buit per videos + doc al log`.
 - `7d6fad8` — `docs(log): TODO Windows fase 2 — thumbnails de videos amb Shell`.
 - (pendent en aquest commit) — `fix(macos): detectar per extensio + reusar FileService`.
+
+## 2026-05-16 — Fix vídeos Windows (fase 2): reaprofitar `ThumbnailCacheService`
+
+Implementada la fase 2 Windows pendent (TODO de l'entrada anterior). Descartada la proposta original (P/Invoke directe a `IShellItemImageFactory` des de `MiratService`) i aplicat el mateix patró que el fix Mac final `3f98e3d`: **reutilitzar la lògica que ja funciona a la UI**.
+
+### Idea
+
+`ThumbnailCacheService` ja genera miniatures de vídeos per la galeria (via `FileService.GenerateVideoThumbnail`, que internament usa el Windows Shell amb COM interop en thread STA — exactament l'API que recomanava el TODO). Les desa com a JPEG q85 ~1024px a `%LocalAppData%\iPhotoImporter\ThumbnailCache\<sha256>.jpg`.
+
+En comptes de duplicar aquesta lògica a `MiratService`, llegim el JPEG del cache directament i l'enviem (reescalat a 200px) com a camp `thumbnail` del multipart. Cache hit típic (vídeo ja vist a la galeria) → upload pràcticament instantani sense regenerar res.
+
+### Canvis
+
+- **`Services/ThumbnailCacheService.cs`** — nou mètode públic `GetThumbnailBytesAsync(filePath, ct) → byte[]?`:
+  1. Si el `.jpg` del cache existeix → `File.ReadAllBytesAsync`.
+  2. Si no → crida `GetThumbnailAsync` perquè el generi (popula el cache a disc i el memory cache) i després llegeix els bytes.
+  3. Retorna `null` si la generació falla (format no suportat pel Shell).
+
+- **`Services/MiratService.cs`**:
+  - Constructor accepta `ThumbnailCacheService? thumbCache = null` (opcional per no trencar usos existents).
+  - `UploadPhotoAsync`: detecta `mime.StartsWith("video/")` i bifurca:
+    - **Vídeo**: nou helper `GetVideoThumbnailFromCacheAsync` → bytes del cache, reescalats a 200px JPEG q70 amb Magick.NET. **No s'envia `preview`** ni `amplada`/`alcada` per a vídeos. El servidor (`acd46d6` al repo `mirat`) accepta uploads de `video/*` sense aquests camps.
+    - **Imatge**: lògica anterior (`GenerateThumbAndPreview` via Magick.NET) sense canvis.
+
+- **`ViewModels/MainViewModel.cs`** — línia 371: `new MiratService(dest, _thumbnailCache)`.
+
+### Per què aquest enfocament és millor que la proposta original
+
+- **Zero P/Invoke nou** a `MiratService` (la proposta del TODO incloïa una classe `ShellThumbnail` amb declaracions COM).
+- **Reutilitza codi provat**: `FileService.GenerateVideoThumbnail` ja s'executa cada vegada que es navega per una carpeta amb vídeos.
+- **Cache hit instantani** per a vídeos ja visualitzats a la UI (cas comú quan l'usuari decideix pujar-los).
+- **Fallback nadiu**: si el Shell no genera miniatura per a un format exòtic, `GetThumbnailBytesAsync` retorna `null` → s'envia sense thumbnail (= comportament de la fase 1).
+
+### Paral·lel amb la lliçó del fix Mac (`3f98e3d`)
+
+Mateixa lliçó documentada a l'entrada anterior: **"abans d'escriure codi de tractament d'imatge/vídeo en aquest repo, mirar si `FileService` ja en té una versió"**. La proposta original ignorava que `ThumbnailCacheService`/`FileService` ja resolien el problema.
+
+### Tradeoffs acceptats
+
+- **Sense `preview` 2048px per a vídeos**: el cache només té 1024px. Es podria enviar el 1024px com a preview, però el visor de Mirat reprodueix el vídeo amb `<video>`, així que el JPEG només és el cartell inicial — el thumbnail 200px ja serveix per al dashboard.
+- **Sense `amplada`/`alcada`**: el cache no les guarda. Per a `video/*` el servidor les pot calcular més tard o quedar com a `null`.
+
+### Test
+
+1. Obrir `iPhotoManager.exe` (desktop, build del 2026-05-16).
+2. Navegar a carpeta amb vídeos → la galeria genera/llegeix les miniatures (populant el cache).
+3. Pujar un vídeo a Mirat.
+4. Al dashboard de Mirat → miniatura del frame, no la cel·la fosca generica.
+
+### Fitxers tocats
+
+- `Services/ThumbnailCacheService.cs` — `GetThumbnailBytesAsync`.
+- `Services/MiratService.cs` — constructor + bifurcació video/imatge + helper.
+- `ViewModels/MainViewModel.cs` — instanciació de `MiratService` amb cache.

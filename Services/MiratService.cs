@@ -26,6 +26,7 @@ public class MiratService : IDisposable
 {
     private readonly HttpClient _http;
     private readonly MiratDestination _dest;
+    private readonly ThumbnailCacheService? _thumbCache;
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -33,9 +34,10 @@ public class MiratService : IDisposable
     };
 
 
-    public MiratService(MiratDestination dest)
+    public MiratService(MiratDestination dest, ThumbnailCacheService? thumbCache = null)
     {
         _dest = dest;
+        _thumbCache = thumbCache;
         _http = new HttpClient
         {
             BaseAddress = new Uri(dest.BaseUrl.TrimEnd('/') + "/"),
@@ -102,8 +104,26 @@ public class MiratService : IDisposable
 
         // 2. Generar thumbnail 200px JPEG i preview 2048px JPEG
         progress?.Report(0.20);
-        var (thumbBytes, previewBytes, width, height) = await Task.Run(
-            () => GenerateThumbAndPreview(photo.FullPath), ct);
+        var isVideo = mime.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+        byte[] thumbBytes;
+        byte[] previewBytes;
+        int width = 0;
+        int height = 0;
+        if (isVideo)
+        {
+            // Reaprofita la miniatura ja generada per la UI (Shell COM via
+            // ThumbnailCacheService) i la reescala a 200px per al camp 'thumbnail'.
+            // Si encara no està al cache, GetThumbnailBytesAsync la dispara.
+            // No enviem 'preview' per a vídeos (el servidor l'accepta opcional
+            // per a MIME video/* — fix server-side acd46d6 al repo mirat).
+            thumbBytes = await GetVideoThumbnailFromCacheAsync(photo.FullPath, ct);
+            previewBytes = Array.Empty<byte>();
+        }
+        else
+        {
+            (thumbBytes, previewBytes, width, height) = await Task.Run(
+                () => GenerateThumbAndPreview(photo.FullPath), ct);
+        }
 
         // 3. Metadades
         var meta = new Dictionary<string, object?>
@@ -254,6 +274,37 @@ public class MiratService : IDisposable
         catch
         {
             return (Array.Empty<byte>(), Array.Empty<byte>(), 0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Obté la miniatura d'un vídeo del <see cref="ThumbnailCacheService"/> (que la
+    /// genera via Shell COM si encara no està al cache) i la reescala a 200px JPEG
+    /// q70 per enviar-la com a camp 'thumbnail'. Retorna bytes buits si no hi ha
+    /// cache injectat o el vídeo no genera miniatura (l'upload continua sense
+    /// thumbnail; el servidor accepta video/* sense aquest camp).
+    /// </summary>
+    private async Task<byte[]> GetVideoThumbnailFromCacheAsync(string path, CancellationToken ct)
+    {
+        if (_thumbCache == null)
+            return Array.Empty<byte>();
+
+        var cacheBytes = await _thumbCache.GetThumbnailBytesAsync(path, ct);
+        if (cacheBytes == null || cacheBytes.Length == 0)
+            return Array.Empty<byte>();
+
+        try
+        {
+            using var image = new MagickImage(cacheBytes);
+            image.Resize(new MagickGeometry(200, 200) { Greater = true });
+            image.Format = MagickFormat.Jpeg;
+            image.Quality = 70;
+            image.Strip();
+            return image.ToByteArray();
+        }
+        catch
+        {
+            return Array.Empty<byte>();
         }
     }
 

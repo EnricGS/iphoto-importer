@@ -108,6 +108,38 @@ public class ThumbnailCacheService
     }
 
     /// <summary>
+    /// Retorna els bytes JPEG de la miniatura tal com estan desats a disc.
+    /// Si encara no s'han generat, dispara la generació (via <see cref="GetThumbnailAsync"/>)
+    /// i després llegeix el fitxer. Retorna <c>null</c> si no s'ha pogut generar
+    /// (per exemple, vídeo amb format no suportat pel Shell).
+    ///
+    /// Ús previst: reaprofitar la miniatura ja cachejada per la UI quan cal pujar
+    /// una foto/vídeo a un servei extern, evitant regenerar-la i sense afegir
+    /// dependències extra a aquell servei.
+    /// </summary>
+    public async Task<byte[]?> GetThumbnailBytesAsync(string filePath, CancellationToken ct = default)
+    {
+        var cachePath = Path.Combine(_cacheFolder, GetCacheKey(filePath) + ".jpg");
+
+        if (!File.Exists(cachePath))
+        {
+            // Força la generació (popula també el memory cache amb el BitmapSource).
+            _ = await GetThumbnailAsync(filePath, ct);
+            if (!File.Exists(cachePath))
+                return null;
+        }
+
+        try
+        {
+            return await File.ReadAllBytesAsync(cachePath, ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Neteja la cache en memòria (la cache a disc es manté).
     /// </summary>
     public void ClearMemoryCache()
