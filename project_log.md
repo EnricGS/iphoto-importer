@@ -951,3 +951,140 @@ Per defensa robusta, `/api/external/upload` ara accepta MIME `video/*` sense thu
 
 - macOS: `7cc2630` — `fix(macos): generar thumbnail per videos amb AVFoundation`.
 - Windows: pendent (en aquest mateix commit, després d'aquesta entrada).
+
+## 2026-05-16 — TODO al Windows: generar thumbnails reals de vídeos
+
+Quan obris aquest repo al Windows, vegeu aquesta entrada per implementar la **fase 2** del fix de vídeos.
+
+### Estat actual
+
+- El client Windows (`Services/MiratService.cs`) **no genera thumbnail** per a vídeos perquè `GenerateThumbAndPreview` usa Magick.NET, que només llegeix imatges. L'excepció es captura silenciosament i retorna `(Array.Empty<byte>(), Array.Empty<byte>(), 0, 0)`.
+- **Fase 1 (ja feta, commit `d4da8a2`)**: condicionar `form.Add(thumbContent, "thumbnail", ...)` a `thumbBytes.Length > 0`. Així no s'envia un fitxer buit. El servidor Mirat (commit `acd46d6` al repo `mirat`) ja accepta uploads de `video/*` sense thumbnail.
+- **Conseqüència actual**: els vídeos pugen correctament des de Windows, però apareixen al dashboard amb una cel·la fosca amb icona de play (fallback genèric). Sense miniatura específica del vídeo.
+
+### Què volem (fase 2)
+
+Generar un thumbnail real des d'un frame del vídeo, com fa el client macOS amb AVFoundation. Així el dashboard mostra una miniatura representativa.
+
+### Proposta: `IShellItemImageFactory` (recomanat)
+
+Windows Shell ja sap mostrar thumbnails de vídeos a l'Explorer. Podem invocar la mateixa API des de C# sense afegir cap dependència externa (Magick.NET, FFmpeg…).
+
+L'API és [`IShellItemImageFactory::GetImage`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ishellitemimagefactory-getimage). Retorna un `HBITMAP` amb la miniatura, escalada a la mida demanada.
+
+Esquema d'implementació (`Services/MiratService.cs`, dins `GenerateThumbAndPreview`):
+
+```csharp
+private static (byte[] thumb, byte[] preview, int width, int height) GenerateThumbAndPreview(string path)
+{
+    // Primer prova com a imatge (Magick.NET com fins ara)
+    try
+    {
+        using var image = new MagickImage(path);
+        // ...lògica existent...
+        return (thumbBytes, previewBytes, width, height);
+    }
+    catch
+    {
+        // No és imatge — prova com a vídeo via Shell
+        return GenerateFromVideoShell(path);
+    }
+}
+
+private static (byte[], byte[], int, int) GenerateFromVideoShell(string path)
+{
+    try
+    {
+        // Obté thumbnail 2048px del Shell (és el màxim útil per a previews)
+        using var hbitmap = ShellThumbnail.GetImage(path, new Size(2048, 2048));
+        if (hbitmap == null) return (Array.Empty<byte>(), Array.Empty<byte>(), 0, 0);
+
+        // Converteix HBITMAP a Bitmap → byte[] JPEG via System.Drawing o ImageSharp
+        using var bmp = Image.FromHbitmap(hbitmap.DangerousGetHandle());
+        var width = bmp.Width;
+        var height = bmp.Height;
+
+        var preview = EncodeJpeg(bmp, 2048, 80);
+        var thumb = EncodeJpeg(bmp, 200, 70);
+        return (thumb, preview, width, height);
+    }
+    catch { return (Array.Empty<byte>(), Array.Empty<byte>(), 0, 0); }
+}
+```
+
+### Helper `ShellThumbnail.GetImage`
+
+Cal una classe wrapper que faça P/Invoke a `SHCreateItemFromParsingName` + `IShellItemImageFactory`. Codi de referència ([microsoft/WindowsAPICodePack](https://github.com/aybe/Windows-API-Code-Pack-1.1) ho té però és vell). Versió compacta:
+
+```csharp
+using System;
+using System.Runtime.InteropServices;
+
+public static class ShellThumbnail
+{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int SHCreateItemFromParsingName(
+        [MarshalAs(UnmanagedType.LPWStr)] string path,
+        IntPtr pbc,
+        [MarshalAs(UnmanagedType.LPStruct)] Guid riid,
+        out IShellItemImageFactory ppv);
+
+    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellItemImageFactory
+    {
+        [PreserveSig]
+        int GetImage(SIZE size, SIIGBF flags, out IntPtr phbm);
+    }
+
+    [StructLayout(LayoutKind.Sequential)] private struct SIZE { public int cx, cy; }
+    [Flags] private enum SIIGBF
+    {
+        ResizeToFit = 0x00,
+        BiggerSizeOk = 0x01,
+        MemoryOnly = 0x02,
+        IconOnly = 0x04,
+        ThumbnailOnly = 0x08,
+        InCacheOnly = 0x10,
+    }
+
+    public static IntPtr GetImage(string path, System.Drawing.Size desired)
+    {
+        var iid = typeof(IShellItemImageFactory).GUID;
+        int hr = SHCreateItemFromParsingName(path, IntPtr.Zero, iid, out var factory);
+        if (hr != 0 || factory == null) return IntPtr.Zero;
+        try
+        {
+            var sz = new SIZE { cx = desired.Width, cy = desired.Height };
+            hr = factory.GetImage(sz, SIIGBF.ResizeToFit | SIIGBF.BiggerSizeOk, out var hbm);
+            return hr == 0 ? hbm : IntPtr.Zero;
+        }
+        finally { Marshal.ReleaseComObject(factory); }
+    }
+}
+```
+
+### Cosa important
+
+`IShellItemImageFactory` requereix que **algú estigui registrat al Shell per generar thumbnails d'aquell format**. Per als formats estàndard (MP4, MOV, AVI, MKV, WebM) això funciona out-of-the-box si Windows té els codecs corresponents instal·lats (normalment sí). Per a formats exòtics pot retornar `E_FAIL` — en aquest cas la lògica cau de tornada a "sense thumbnail" i el servidor el gestiona (fallback al dashboard).
+
+### Alternativa secundària
+
+Si `IShellItemImageFactory` resulta inestable o vol més control (frame en moment concret, no el que decideixi el Shell): paquet `FFMpegCore` + `ffmpeg.exe` al PATH o `\Resources`. Aporta:
+
+- Control precís del segon del frame.
+- Suport a formats que el Shell no reconeix.
+- Mida del binari: ffmpeg pesa ~80MB; cal decidir si val la pena distribuir-lo.
+
+### Test mínim
+
+Triar un MP4 a iPhotoManager al Windows, pujar-lo a Mirat. Verificar:
+
+1. La pujada no falla.
+2. Al dashboard apareix una miniatura **del vídeo** (un frame), no la cel·la fosca generic.
+3. El visor reprodueix el vídeo amb `<video>`.
+
+### Documentació afí
+
+- Bug original i fix macOS: aquest mateix `project_log.md`, entrada 2026-05-16.
+- Servidor Mirat (accepta vídeos sense thumbnail): `mirat/project_log.md` entrada 2026-05-16, commit `acd46d6`.
