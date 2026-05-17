@@ -7,6 +7,7 @@ import AVFoundation
 import os.log
 
 private let videoThumbLog = Logger(subsystem: "com.iphotomanager.app", category: "video-thumbs")
+private let uploadLog = Logger(subsystem: "com.iphotomanager.app", category: "upload")
 
 // MARK: - DTOs
 
@@ -188,22 +189,48 @@ final class MiratService {
         req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
         req.httpBody = body
 
-        do {
-            let (data, resp) = try await session.data(for: req)
-            let http = resp as? HTTPURLResponse
-            let bodyText = String(data: data, encoding: .utf8) ?? ""
-            guard let status = http?.statusCode, (200...299).contains(status) else {
-                return .fail("HTTP \(http?.statusCode ?? 0): \(bodyText)")
+        // Reintent automàtic per a errors transitoris (xarxa / 5xx / 429).
+        // Una sola pujada genera 5+ operacions backend (MinIO + DB + fire-and-forget
+        // ia-pipeline) — amb 3 uploads concurrents pot saturar el granja i alguna
+        // tanda fallar amb timeout/503. Un sol retry resol ~tot.
+        let filename = fileURL.lastPathComponent
+        let maxAttempts = 2
+        for attempt in 1...maxAttempts {
+            do {
+                let (data, resp) = try await session.data(for: req)
+                let http = resp as? HTTPURLResponse
+                let status = http?.statusCode ?? 0
+                let bodyText = String(data: data, encoding: .utf8) ?? ""
+
+                if (200...299).contains(status) {
+                    guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let id = json["id"] as? String else {
+                        uploadLog.error("Resposta no JSON per \(filename, privacy: .public): \(bodyText.prefix(200), privacy: .public)")
+                        return .fail("Resposta inesperada: \(bodyText)")
+                    }
+                    let duplicat = (json["duplicat"] as? Bool) ?? false
+                    if attempt > 1 {
+                        uploadLog.notice("Recuperat al retry #\(attempt) — \(filename, privacy: .public)")
+                    }
+                    return .ok(id: id, duplicat: duplicat)
+                }
+
+                // Decideix si reintentar segons codi HTTP
+                let isRetriable = status == 0 || status >= 500 || status == 429
+                uploadLog.error("HTTP \(status) intent \(attempt)/\(maxAttempts) — \(filename, privacy: .public): \(bodyText.prefix(300), privacy: .public)")
+                if !isRetriable || attempt == maxAttempts {
+                    return .fail("HTTP \(status): \(bodyText)")
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)  // 2s backoff
+            } catch {
+                uploadLog.error("Error de xarxa intent \(attempt)/\(maxAttempts) — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                if attempt == maxAttempts {
+                    return .fail("Error de xarxa: \(error.localizedDescription)")
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let id = json["id"] as? String else {
-                return .fail("Resposta inesperada: \(bodyText)")
-            }
-            let duplicat = (json["duplicat"] as? Bool) ?? false
-            return .ok(id: id, duplicat: duplicat)
-        } catch {
-            return .fail("Error de xarxa: \(error.localizedDescription)")
         }
+        return .fail("Esgotats els reintents")
     }
 
     // MARK: - HTTP helpers
