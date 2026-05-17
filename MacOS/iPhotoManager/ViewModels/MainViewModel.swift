@@ -334,6 +334,11 @@ final class MainViewModel {
         miratUploadProgress = 0
         hasError = false
 
+        // Missatge immediat perquè l'usuari sàpiga que ha començat. Sense
+        // això, durant la preparació (SHA-256 + thumbnail + primer fetch)
+        // es queda visible el missatge anterior i sembla que s'hagi penjat.
+        statusMessage = "Preparant pujada a Mirat (\(dest.displayLabel)): 0/\(photos.count)…"
+
         let svc = MiratService(destination: dest)
         let total = photos.count
         var uploaded = 0
@@ -1456,6 +1461,10 @@ final class MainViewModel {
         hasError = false
         copyProgress = 0
 
+        // Feedback immediat — el primer callback de progrés només arriba quan
+        // s'està copiant el primer fitxer; abans, l'usuari no veia cap canvi.
+        statusMessage = "Preparant còpia de \(files.count) fitxer(s) a \(destination)…"
+
         do {
             let copied = try await fileService.copyFiles(files, to: destination) { [weak self] current, total, fileName in
                 Task { @MainActor [weak self] in
@@ -1513,6 +1522,7 @@ final class MainViewModel {
         copyProgress = 0
 
         let filesToMove = Array(selectedPhotos)
+        statusMessage = "Preparant moviment de \(filesToMove.count) fitxer(s) a \(url.path)…"
 
         do {
             let moved = try await fileService.moveFiles(filesToMove, to: url.path) { [weak self] current, total, fileName in
