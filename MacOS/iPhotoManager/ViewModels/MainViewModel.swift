@@ -381,6 +381,16 @@ final class MainViewModel {
         isUploadingToMirat = false
         miratUploadProgress = 0
         hasError = errors > 0
+
+        // Netejar la selecció després d'una tanda completa (independentment
+        // d'errors): l'usuari ha vist el resum final i no se sentir-se atrapat
+        // amb fotos marcades que costa desseleccionar. Si vol reintentar les
+        // que han fallat, les pot tornar a triar.
+        for photo in photos where photo.isSelected {
+            photo.isSelected = false
+        }
+        selectedPhotos.removeAll()
+
         statusMessage = "Acabat: \(uploaded) noves · \(duplicats) duplicades · \(errors) errors a \(dest.displayLabel)."
     }
 
@@ -1575,6 +1585,10 @@ final class MainViewModel {
                 allPhotos.removeAll { $0 == item }
                 photos.removeAll { $0 == item }
                 selectedPhotos.remove(item)
+                // Reset isSelected a la instància: l'objecte continua viu
+                // (lastDeletedItems el reté per a undo). Si l'usuari fa undo
+                // i la foto torna, no volem que aparegui "fantasma seleccionada".
+                item.isSelected = false
             }
 
             photoCount = allPhotos.filter { !$0.isVideo }.count
