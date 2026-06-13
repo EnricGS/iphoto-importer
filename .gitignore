@@ -8,3 +8,4 @@ installer_output/
 *.zip
 MacOS/.build/
 dist/
+.notes

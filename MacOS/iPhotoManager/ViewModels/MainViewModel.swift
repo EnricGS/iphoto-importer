@@ -344,6 +344,7 @@ final class MainViewModel {
         var uploaded = 0
         var duplicats = 0
         var errors = 0
+        var lastError: String?
 
         // TaskGroup amb concurrencia limitada a 3
         await withTaskGroup(of: MiratUploadResult.self) { group in
@@ -363,12 +364,17 @@ final class MainViewModel {
                     if result.duplicat { duplicats += 1 } else { uploaded += 1 }
                 } else {
                     errors += 1
+                    lastError = result.errorMessage
                 }
 
                 let done = uploaded + duplicats + errors
                 miratUploadProgress = Double(done) / Double(total) * 100.0
-                statusMessage = "Pujant a Mirat (\(dest.displayLabel)): \(done)/\(total) "
+                var msg = "Pujant a Mirat (\(dest.displayLabel)): \(done)/\(total) "
                     + "· \(uploaded) noves · \(duplicats) duplicades · \(errors) errors"
+                if let lastError {
+                    msg += " — Últim error: \(lastError)"
+                }
+                statusMessage = msg
 
                 // Llançar la següent si en queden
                 if let next = iterator.next() {
@@ -391,7 +397,11 @@ final class MainViewModel {
         }
         selectedPhotos.removeAll()
 
-        statusMessage = "Acabat: \(uploaded) noves · \(duplicats) duplicades · \(errors) errors a \(dest.displayLabel)."
+        var finalMsg = "Acabat: \(uploaded) noves · \(duplicats) duplicades · \(errors) errors a \(dest.displayLabel)."
+        if let lastError {
+            finalMsg += " — Últim error: \(lastError)"
+        }
+        statusMessage = finalMsg
     }
 
     // MARK: - Scroll Request (for split mode sync)
