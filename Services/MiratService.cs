@@ -137,7 +137,19 @@ public class MiratService : IDisposable
             meta["data_original"] = photo.DateTaken.Value.ToUniversalTime().ToString("o");
         if (_dest.PujatPer != null)
             meta["pujat_per"] = _dest.PujatPer;
-        // TODO: afegir GPS i dades càmera quan PhotoItem les exposi
+        // GPS — del PhotoItem (poblat a l'escaneig) o, si no, extret del fitxer.
+        // Sense això cap foto pujada amb iPhoto Manager arribava amb ubicació a Mirat.
+        (double lat, double lon)? coords =
+            (photo.GpsLatitude.HasValue && photo.GpsLongitude.HasValue)
+                ? (photo.GpsLatitude.Value, photo.GpsLongitude.Value)
+                : FileService.ExtractGpsLocation(photo.FullPath);
+        if (coords.HasValue)
+        {
+            meta["latitud"] = coords.Value.lat;
+            meta["longitud"] = coords.Value.lon;
+        }
+        if (!string.IsNullOrEmpty(photo.Location))
+            meta["nom_lloc"] = photo.Location;
 
         // 4. Multipart
         progress?.Report(0.35);

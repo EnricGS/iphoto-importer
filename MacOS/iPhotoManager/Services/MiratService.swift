@@ -127,6 +127,21 @@ final class MiratService {
         }
         if let pujatPer = destination.pujatPer { meta["pujat_per"] = pujatPer }
 
+        // GPS — extret directament del fitxer en pujar. Per a fotos locals
+        // `photo.gpsLatitude/Longitude` sovint són nil (loadLocations() només
+        // omple `location` en background), així que el llegim aquí. Sense això,
+        // cap foto pujada amb iPhoto Manager arribava amb ubicació a Mirat.
+        if let coords = FileService.extractGPSLocation(at: photo.fullPath) {
+            meta["latitud"] = coords.latitude
+            meta["longitud"] = coords.longitude
+        } else if let lat = photo.gpsLatitude, let lon = photo.gpsLongitude {
+            // Fallback per a items de càmera (gpsLatitude ja poblat, sense fitxer EXIF llegible)
+            meta["latitud"] = lat
+            meta["longitud"] = lon
+        }
+        // Si ja tenim el nom del lloc, l'enviem i estalviem el geocode al servidor
+        if let loc = photo.location, !loc.isEmpty { meta["nom_lloc"] = loc }
+
         let metaJson: String
         if let data = try? JSONSerialization.data(withJSONObject: meta, options: []),
            let str = String(data: data, encoding: .utf8) {
@@ -187,7 +202,9 @@ final class MiratService {
         applyAuth(to: &req)
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
-        req.httpBody = body
+        // No assignem httpBody — usem upload(for:from:) que fa streaming
+        // i funciona millor amb bodies grans en macOS (evita l'error
+        // "Internet connection appears to be offline" amb fitxers >5MB).
 
         // Reintent automàtic per a errors transitoris (xarxa / 5xx / 429).
         // Una sola pujada genera 5+ operacions backend (MinIO + DB + fire-and-forget
@@ -197,7 +214,7 @@ final class MiratService {
         let maxAttempts = 2
         for attempt in 1...maxAttempts {
             do {
-                let (data, resp) = try await session.data(for: req)
+                let (data, resp) = try await session.upload(for: req, from: body)
                 let http = resp as? HTTPURLResponse
                 let status = http?.statusCode ?? 0
                 let bodyText = String(data: data, encoding: .utf8) ?? ""
