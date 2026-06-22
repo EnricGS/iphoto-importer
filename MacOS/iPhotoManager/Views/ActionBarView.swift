@@ -52,6 +52,23 @@ struct ActionBarView: View {
                 .disabled(viewModel.deviceService.isImporting)
                 .help("Import selected photos to a local folder")
 
+                // Enviar directament a Mirat (només si hi ha un destí vinculat).
+                if viewModel.hasActiveMiratDestination {
+                    Button {
+                        Task { await viewModel.uploadSelectedDeviceToMirat() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "icloud.and.arrow.up")
+                                .font(.system(size: 14))
+                            Text("Enviar a Mirat")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(viewModel.deviceService.isImporting || viewModel.isUploadingToMirat)
+                    .help("Envia les seleccionades directament a Mirat (\(viewModel.activeMiratLabel))")
+                }
+
                 Button {
                     Task { await viewModel.deleteSelectedFromDevice() }
                 } label: {

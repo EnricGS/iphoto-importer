@@ -1187,3 +1187,27 @@ Mateixa lliçó documentada a l'entrada anterior: **"abans d'escriure codi de tr
 - `Services/ThumbnailCacheService.cs` — `GetThumbnailBytesAsync`.
 - `Services/MiratService.cs` — constructor + bifurcació video/imatge + helper.
 - `ViewModels/MainViewModel.cs` — instanciació de `MiratService` amb cache.
+
+---
+
+## 2026-06-23 — iPhone: thumbnails ràpids + "Enviar a Mirat" directe (macOS)
+
+Dues millores al mode browse del dispositiu (iPhone via ImageCaptureCore), **només a macOS** → **cal portar-les a la versió Windows** (WPF/MediaDevices), vegeu sota.
+
+### 1. Thumbnails del dispositiu ràpids (commit `7317076`)
+Amb 35k fotos els thumbnails sortien lentíssims: es carregaven **en SÈRIE** (un `requestThumbnail` rere l'altre per USB). A més, un **bug latent**: la continuation s'indexava per `file.name`, i l'iPhone té noms repetits (IMG_0001.jpg en àlbums diferents) → xocaven en paral·lel.
+- **Clau única** `ObjectIdentifier(file)` per la continuation (`DeviceImportService`) — requisit per paral·lelitzar.
+- **Càrrega concurrent** (6 alhora) + **mandrosa per cel·la** (`.task` a `ThumbnailGridView`): només es carrega el que es dibuixa → respecta els anys colapsats del timeline.
+- **Escaneig de duplicats SOTA DEMANDA** (en activar el filtre de duplicats), no automàtic en obrir → ja no carrega 35k miniatures només navegant. **Resol el "spinner infinit dedup iPhone 34K".**
+- Validat per l'usuari amb el seu iPhone.
+
+### 2. "Enviar a Mirat" des del dispositiu (aquesta entrada)
+Abans, per pujar fotos de l'iPhone a Mirat calia **importar-les abans al disc**. Ara, en mode browse, hi ha un botó **"Enviar a Mirat"** (si hi ha un destí Mirat vinculat) que les envia **directament**:
+1. Baixa les seleccionades a una carpeta **temporal** (reusa `importSelectedFiles`, en sèrie i provat).
+2. Les puja amb el flux Mirat existent (`uploadPhotosToMirat` → SHA, thumbnail, preview, GPS de l'EXIF, dedup, reintents), **concurrent (3)**.
+3. Esborra la temporal + desmarca la selecció. **Sense còpia permanent al disc.**
+- `MainViewModel.uploadSelectedDeviceToMirat()` + botó a `ActionBarView` (mode dispositiu, gated per `hasActiveMiratDestination`).
+- **Limitació v1**: baixada en sèrie (camí provat); pujada concurrent. Noms repetits (rar) → només baixa un del parell (`overwrite:false`). Per a baixada concurrent + noms únics caldria arreglar `downloadTempFile`/`importSelectedFiles` (com el fix de thumbnails).
+
+### ⚠️ A FER A LA VERSIÓ WINDOWS (WPF/.NET, MediaDevices)
+Portar les dues coses: (a) càrrega de thumbnails ràpida/mandrosa + dedup sota demanda si pateix la mateixa lentitud amb 34K; (b) **"Enviar a Mirat" directe** des del dispositiu (baixar a temp → `MiratService.UploadPhotoAsync` → esborrar). El `MiratService` de Windows ja existeix (s'usa per a fotos locals).

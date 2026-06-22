@@ -410,6 +410,41 @@ final class MainViewModel {
         statusMessage = finalMsg
     }
 
+    /// Envia les fotos seleccionades del DISPOSITIU directament a Mirat: les baixa a
+    /// una carpeta temporal (reusa el camí d'importació), les puja amb el flux de
+    /// Mirat i esborra la temporal. Sense còpia permanent al disc.
+    func uploadSelectedDeviceToMirat() async {
+        guard let dest = activeMiratDestination else {
+            statusMessage = "Cap destí Mirat seleccionat. Vincula'n un primer (⚙️)."
+            return
+        }
+        let selected = Array(selectedPhotos)
+        let files = selected.compactMap { $0.cameraFile }
+        guard !files.isEmpty else { return }
+
+        let tempFolder = NSTemporaryDirectory() + "iPhotoManager-mirat-\(UUID().uuidString)/"
+
+        // 1) Baixa del telèfon a la carpeta temporal (en sèrie, com la importació normal).
+        statusMessage = "Baixant \(files.count) del telèfon…"
+        _ = await deviceService.importSelectedFiles(files, to: tempFolder) { _, _, _ in }
+
+        // 2) Construeix PhotoItems locals des de la carpeta temporal i puja'ls a Mirat
+        //    (concurrent, amb dedup/thumbnail/GPS via MiratService).
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: tempFolder)) ?? []
+        let tempPhotos: [PhotoItem] = names.map { name in
+            let path = tempFolder + name
+            let size = ((try? fm.attributesOfItem(atPath: path))?[.size] as? Int64) ?? 0
+            let original = selected.first { $0.fileName == name }
+            return PhotoItem(fullPath: path, fileName: name, dateTaken: original?.dateTaken, sizeBytes: size, isLocal: true)
+        }
+        await uploadPhotosToMirat(tempPhotos, destination: dest)
+
+        // 3) Neteja: carpeta temporal + selecció del dispositiu (la graella).
+        try? fm.removeItem(atPath: tempFolder)
+        for photo in selected { photo.isSelected = false }
+    }
+
     // MARK: - Scroll Request (for split mode sync)
 
     var scrollToIndex: Int?
