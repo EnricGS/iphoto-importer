@@ -66,7 +66,9 @@ final class DeviceImportService: NSObject {
     private var downloadContinuation: CheckedContinuation<Void, Never>?
     private var tempDownloadContinuations: [String: CheckedContinuation<Void, Never>] = [:]
     private var sessionContinuation: CheckedContinuation<Bool, Never>?
-    private var thumbnailContinuations: [String: CheckedContinuation<CGImage?, Never>] = [:]
+    // Clau = identitat de l'objecte ICCameraFile (NO el nom: a l'iPhone hi ha noms
+    // repetits, p.ex. IMG_0001.jpg en àlbums diferents → xocarien en paral·lel).
+    private var thumbnailContinuations: [ObjectIdentifier: CheckedContinuation<CGImage?, Never>] = [:]
     private var deleteContinuation: CheckedContinuation<Void, Never>?
     private var metadataContinuations: [String: CheckedContinuation<[AnyHashable: Any]?, Never>] = [:]
     private var catalogContinuation: CheckedContinuation<Void, Never>?
@@ -308,7 +310,7 @@ final class DeviceImportService: NSObject {
             return NSImage(cgImage: thumb, size: NSSize(width: thumb.width, height: thumb.height))
         }
 
-        let key = file.name ?? UUID().uuidString
+        let key = ObjectIdentifier(file)
         let cgImage: CGImage? = await withCheckedContinuation { (cont: CheckedContinuation<CGImage?, Never>) in
             thumbnailContinuations[key] = cont
             file.requestThumbnail()
@@ -640,7 +642,7 @@ extension DeviceImportService: ICCameraDeviceDelegate {
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didRemove items: [ICCameraItem]) {}
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceiveThumbnail thumbnail: CGImage?, for item: ICCameraItem, error: (any Error)?) {
         Task { @MainActor in
-            let key = item.name ?? ""
+            let key = ObjectIdentifier(item)
             if let cont = thumbnailContinuations.removeValue(forKey: key) {
                 cont.resume(returning: thumbnail)
             }

@@ -446,6 +446,12 @@ struct ThumbnailGridView: View {
             }
         )
         .id(photo.id)
+        .task(id: photo.id) {
+            // Càrrega MANDROSA del thumbnail (només dispositiu): cada cel·la el
+            // demana en aparèixer → les visibles surten de seguida encara que el
+            // telèfon tingui 35k fotos. (Les locals ja tenen el thumbnail a part.)
+            if !photo.isLocal { await viewModel.loadDeviceThumbnailIfNeeded(for: photo) }
+        }
         .background(
             GeometryReader { geo in
                 Color.clear.preference(

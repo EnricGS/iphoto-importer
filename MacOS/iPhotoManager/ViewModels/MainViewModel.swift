@@ -37,6 +37,9 @@ final class MainViewModel {
     // MARK: - Cancellation
 
     private var thumbnailTask: Task<Void, Never>?
+    /// Ids de fotos amb el thumbnail en curs (dedup entre la càrrega mandrosa per
+    /// cel·la i la de fons, perquè no es demani dues vegades).
+    private var loadingThumbIds = Set<String>()
     private var prefetchTask: Task<Void, Never>?
     private var viewerDownloadTask: Task<Void, Never>?
 
@@ -119,13 +122,16 @@ final class MainViewModel {
 
     /// Deduplication
     var filterExactDuplicates: Bool = false {
-        didSet { applyFilter() }
+        didSet { applyFilter(); scanDeviceDuplicatesIfNeeded() }
     }
     var filterSimilarDuplicates: Bool = false {
-        didSet { applyFilter() }
+        didSet { applyFilter(); scanDeviceDuplicatesIfNeeded() }
     }
     var exactDuplicateCount: Int = 0
     var similarDuplicateCount: Int = 0
+    /// Si ja s'ha escanejat duplicats en aquesta sessió de browse del dispositiu
+    /// (l'escaneig és SOTA DEMANDA: s'activa amb el filtre, no en navegar).
+    private var hasScannedDeviceDuplicates = false
     var isScanningExact: Bool = false
     var isScanningSimilar: Bool = false
     private var duplicateScanTask: Task<Void, Never>?
@@ -573,11 +579,8 @@ final class MainViewModel {
         // Replace in one shot (avoid empty grid flash)
         photos = sorted
 
-        // In device browse mode, restart thumbnail loading for items
-        // that don't have thumbnails yet (handles reorder/filter changes)
-        if isDeviceBrowseMode {
-            loadDeviceThumbnails()
-        }
+        // En mode browse els thumbnails es carreguen MANDROSAMENT per cel·la
+        // (.task a la graella) → no cal forçar cap càrrega en reordenar/filtrar.
 
         rebuildGroups()
         updateStatusMessage()
@@ -1725,6 +1728,7 @@ final class MainViewModel {
 
             // Enter browse mode
             isDeviceBrowseMode = true
+            hasScannedDeviceDuplicates = false  // nova sessió: encara no s'han escanejat duplicats
             closeViewer()
             openFolders.removeAll()
             currentFolderPath = nil
@@ -1746,9 +1750,9 @@ final class MainViewModel {
 
             isLoading = false
 
-            // Load thumbnails from device in background, then scan for duplicates
-            loadDeviceThumbnails()
-            scanDeviceDuplicates()
+            // Thumbnails: càrrega MANDROSA per cel·la (.task a la graella). L'escaneig
+            // de duplicats és SOTA DEMANDA (s'activa amb el filtre de duplicats), NO
+            // automàtic en obrir → no carrega 35k miniatures només navegant.
         } catch {
             isLoading = false
             deviceService.statusMessage = "Error de navegació: \(error.localizedDescription)"
@@ -1756,34 +1760,61 @@ final class MainViewModel {
     }
 
     private func loadDeviceThumbnails() {
-        // Cancel any in-flight loading to prioritize current visible photos
+        // Cancel·la qualsevol càrrega en marxa per prioritzar les fotos actuals.
         thumbnailTask?.cancel()
 
-        let visiblePhotos = photos  // Priority: filtered/visible items first
+        let visiblePhotos = photos  // Prioritat: filtrades/visibles primer
         let allItems = allPhotos
-        thumbnailTask = Task {
-            // First pass: visible/filtered photos (what user sees now)
-            for photo in visiblePhotos {
-                guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
-                guard photo.thumbnail == nil else { continue }
-                if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
-                    photo.thumbnail = thumb
-                }
-            }
-            // Second pass: ALL remaining photos (for future filtering/scanning)
-            for photo in allItems {
-                guard !Task.isCancelled, let cameraFile = photo.cameraFile else { continue }
-                guard photo.thumbnail == nil else { continue }
-                if let thumb = await deviceService.requestThumbnail(for: cameraFile) {
-                    photo.thumbnail = thumb
-                }
-            }
+        thumbnailTask = Task { [weak self] in
+            guard let self else { return }
+            // Concurrent (abans era en SÈRIE → amb 35k fotos trigava una eternitat).
+            await self.loadThumbnailsConcurrently(visiblePhotos)  // visibles primer
+            await self.loadThumbnailsConcurrently(allItems)        // la resta (per a l'escaneig)
             self.thumbnailTask = nil
         }
     }
 
+    /// Carrega thumbnails de `items` amb un màxim de `maxConcurrent` peticions
+    /// simultànies al dispositiu (ImageCaptureCore es satura amb massa alhora).
+    private func loadThumbnailsConcurrently(_ items: [PhotoItem], maxConcurrent: Int = 6) async {
+        await withTaskGroup(of: Void.self) { group in
+            var index = 0
+            while index < maxConcurrent, index < items.count {
+                let photo = items[index]; index += 1
+                group.addTask { [weak self] in await self?.loadDeviceThumbnailIfNeeded(for: photo) }
+            }
+            while await group.next() != nil {
+                if Task.isCancelled { group.cancelAll(); break }
+                guard index < items.count else { continue }
+                let photo = items[index]; index += 1
+                group.addTask { [weak self] in await self?.loadDeviceThumbnailIfNeeded(for: photo) }
+            }
+        }
+    }
+
+    /// Demana el thumbnail d'una foto del dispositiu si encara no el té. Deduplicat:
+    /// la graella mandrosa (per cel·la visible) i la càrrega de fons no el demanen
+    /// dues vegades. La crida la graella a `.task` de cada cel·la i la càrrega de fons.
+    func loadDeviceThumbnailIfNeeded(for photo: PhotoItem) async {
+        guard photo.thumbnail == nil, let cameraFile = photo.cameraFile,
+              !loadingThumbIds.contains(photo.id) else { return }
+        loadingThumbIds.insert(photo.id)
+        let thumb = await deviceService.requestThumbnail(for: cameraFile)
+        loadingThumbIds.remove(photo.id)
+        if let thumb { photo.thumbnail = thumb }
+    }
+
     /// Scans device photos for duplicates using perceptual hash on thumbnails.
     /// Waits for thumbnails to load, then computes hashes.
+    /// Engega l'escaneig de duplicats del dispositiu NOMÉS quan cal: en activar un
+    /// filtre de duplicats en mode browse i si encara no s'ha fet en aquesta sessió.
+    private func scanDeviceDuplicatesIfNeeded() {
+        guard isDeviceBrowseMode, !hasScannedDeviceDuplicates,
+              filterExactDuplicates || filterSimilarDuplicates else { return }
+        hasScannedDeviceDuplicates = true
+        scanDeviceDuplicates()
+    }
+
     private func scanDeviceDuplicates() {
         duplicateScanTask?.cancel()
         isScanningExact = true
@@ -1792,6 +1823,10 @@ final class MainViewModel {
         similarDuplicateCount = 0
 
         let items = allPhotos  // Scan ALL photos, not just filtered
+
+        // SOTA DEMANDA: carrega ARA totes les miniatures (necessàries per al hash
+        // perceptual). Abans es carregaven sempre en navegar; ara, només en escanejar.
+        loadDeviceThumbnails()
 
         duplicateScanTask = Task {
             // Wait for thumbnails to be loaded (poll every 2s, max 60s)
@@ -2016,6 +2051,7 @@ final class MainViewModel {
         savedCurrentFolder = nil
 
         isDeviceBrowseMode = false
+        hasScannedDeviceDuplicates = false
 
         // Cancel any device duplicate scan
         duplicateScanTask?.cancel()
