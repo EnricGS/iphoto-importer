@@ -2055,6 +2055,8 @@ public partial class MainViewModel : ObservableObject
     private List<string> _savedOpenFolders = [];
     private string? _savedCurrentFolder;
     private CancellationTokenSource? _deviceThumbnailCts;
+    // FullPaths de fotos del dispositiu que ja han demanat la seva miniatura (lazy).
+    private readonly HashSet<string> _deviceThumbRequested = [];
     private DateTime _deviceMinDate;
 
     [RelayCommand]
@@ -2131,6 +2133,13 @@ public partial class MainViewModel : ObservableObject
             Photos.Clear();
             SelectedPhotos.Clear();
 
+            // Reiniciar l'estat de càrrega mandrosa de miniatures: les miniatures del
+            // dispositiu es baixaran per cel·la visible (vegeu RequestDeviceThumbnail),
+            // no totes d'un cop.
+            _deviceThumbnailCts?.Cancel();
+            _deviceThumbnailCts = new CancellationTokenSource();
+            _deviceThumbRequested.Clear();
+
             BrowseDeviceName = SelectedDevice.FriendlyName ?? "Dispositiu";
             ImportStatusMessage = $"Escanejant {BrowseDeviceName}...";
 
@@ -2175,8 +2184,9 @@ public partial class MainViewModel : ObservableObject
             ImportStatusMessage = $"{devicePhotos.Count} fitxers carregats de {BrowseDeviceName}.";
             UpdateStatusMessage();
 
-            // Carregar thumbnails en segon pla
-            _ = LoadDeviceThumbnailsAsync();
+            // Les miniatures es carreguen mandrosament per cel·la visible (la graella
+            // crida RequestDeviceThumbnail via DataContextChanged). Així no baixem 34K
+            // miniatures d'un cop pel canal MTP (resol l'"spinner infinit").
         }
         catch (Exception ex)
         {
@@ -2233,7 +2243,7 @@ public partial class MainViewModel : ObservableObject
                 VideoCount = _allPhotos.Count(p => p.IsVideo);
                 DeviceFileCount = _allPhotos.Count;
                 ApplyFilter();
-                _ = LoadDeviceThumbnailsAsync();
+                // Les noves cel·les visibles demanaran la seva miniatura (lazy).
             }
 
             ImportStatusMessage = newPhotos.Count > 0
@@ -2250,38 +2260,38 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private async Task LoadDeviceThumbnailsAsync()
+    /// <summary>
+    /// Demana (mandrosament) la miniatura d'una foto del dispositiu. La graella la
+    /// crida quan una cel·la es fa visible o es recicla cap a una foto nova
+    /// (DataContextChanged). Cada FullPath es demana un sol cop. Així només baixem
+    /// les miniatures que es dibuixen, en comptes de les 34K del dispositiu d'un cop
+    /// — que saturava el canal MTP i deixava l'app amb un "spinner infinit".
+    /// </summary>
+    public void RequestDeviceThumbnail(PhotoItem item)
     {
-        if (SelectedDevice == null || _deviceService == null) return;
+        if (!IsDeviceBrowseMode || SelectedDevice == null || _deviceService == null) return;
+        if (item.Thumbnail != null) return;
+        // Un sol intent per fitxer (FullPath és únic dins el dispositiu).
+        if (!_deviceThumbRequested.Add(item.FullPath)) return;
+        _ = LoadOneDeviceThumbnailAsync(item, _deviceThumbnailCts?.Token ?? CancellationToken.None);
+    }
 
-        _deviceThumbnailCts?.Cancel();
-        _deviceThumbnailCts = new CancellationTokenSource();
-        var ct = _deviceThumbnailCts.Token;
-
+    private async Task LoadOneDeviceThumbnailAsync(PhotoItem item, CancellationToken ct)
+    {
+        // Nota: GetThumbnailAsync s'executa al thread STA únic del DeviceService, així
+        // que les baixades MTP se serialitzen igualment (restricció del driver WPD).
+        // El guany aquí és que només demanem les cel·les visibles.
         try
         {
-            // Carregar thumbnails per les fotos visibles primer, després la resta
-            var items = Photos.ToList();
-            foreach (var item in items)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (item.Thumbnail != null) continue;
-
-                try
-                {
-                    var thumb = await _deviceService.GetThumbnailAsync(SelectedDevice, item.FullPath);
-                    if (thumb != null && !ct.IsCancellationRequested)
-                    {
-                        Application.Current?.Dispatcher.Invoke(() =>
-                        {
-                            item.Thumbnail = thumb;
-                        });
-                    }
-                }
-                catch { }
-            }
+            var thumb = await _deviceService!.GetThumbnailAsync(SelectedDevice!, item.FullPath);
+            if (thumb != null && !ct.IsCancellationRequested && IsDeviceBrowseMode)
+                await Application.Current.Dispatcher.InvokeAsync(() => item.Thumbnail = thumb);
         }
-        catch (OperationCanceledException) { }
+        catch
+        {
+            // Permetre un reintent si la cel·la torna a fer-se visible.
+            _deviceThumbRequested.Remove(item.FullPath);
+        }
     }
 
     /// <summary>
@@ -2397,6 +2407,82 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Envia les fotos seleccionades del dispositiu directament a Mirat, sense
+    /// importar-les permanentment al disc: baixa cada foto a una carpeta temporal
+    /// (en sèrie — camí MTP provat), les puja amb el flux Mirat existent (concurrent,
+    /// amb SHA/thumbnail/preview/dedup), i esborra els temporals. Paritat amb el
+    /// botó macOS "Enviar a Mirat" del mode dispositiu.
+    /// </summary>
+    [RelayCommand]
+    private async Task UploadSelectedDeviceToMiratAsync()
+    {
+        if (SelectedDevice == null || _deviceService == null) return;
+        if (ActiveMiratDestination == null)
+        {
+            StatusMessage = "No hi ha cap destí Mirat actiu.";
+            return;
+        }
+        if (SelectedPhotos.Count == 0) return;
+
+        var selected = SelectedPhotos.ToList();
+        var dest = ActiveMiratDestination;
+        var tempItems = new List<PhotoItem>();
+        var tempPaths = new List<string>();
+
+        IsImporting = true;
+        ImportProgress = 0;
+        ImportStatusMessage = $"Preparant {selected.Count} fitxer(s) per a Mirat...";
+
+        try
+        {
+            // 1. Baixar les seleccionades a temp (en sèrie — el canal MTP ho és igualment).
+            for (var i = 0; i < selected.Count; i++)
+            {
+                var photo = selected[i];
+                ImportProgress = (double)i / selected.Count * 100;
+                ImportStatusMessage = $"Baixant {i + 1}/{selected.Count}: {photo.FileName}";
+
+                var tempPath = await _deviceService.DownloadTempFileAsync(SelectedDevice, photo);
+                if (tempPath == null) continue;
+
+                tempPaths.Add(tempPath);
+                tempItems.Add(new PhotoItem
+                {
+                    FullPath = tempPath,
+                    FileName = photo.FileName,
+                    DateTaken = photo.DateTaken,
+                    SizeBytes = photo.SizeBytes,
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            ImportStatusMessage = $"Error baixant del dispositiu: {ex.Message}";
+        }
+        finally
+        {
+            IsImporting = false;
+            ImportProgress = 0;
+        }
+
+        // 2. Pujar amb el flux Mirat existent (reusa tota la lògica de fotos locals).
+        if (tempItems.Count > 0)
+            await UploadPhotosToMiratAsync(tempItems, dest);
+
+        // 3. Esborrar els temporals i desmarcar la selecció (sense còpia permanent al disc).
+        foreach (var p in tempPaths)
+        {
+            try { if (File.Exists(p)) File.Delete(p); }
+            catch { /* fitxer en ús o ja esborrat */ }
+        }
+        foreach (var p in selected)
+            p.IsSelected = false;
+        SelectedPhotos.Clear();
+        SelectedPhotosCount = 0;
+        ShowActionBar = false;
+    }
+
     // NOTA: Eliminar fotos de l'iPhone via MTP no és possible — DeleteFile es congela indefinidament.
 
     /// <summary>
@@ -2405,8 +2491,9 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ExitDeviceBrowseMode()
     {
-        // Cancel·lar tasques de thumbnails
+        // Cancel·lar càrrega de miniatures i reiniciar l'estat de càrrega mandrosa
         _deviceThumbnailCts?.Cancel();
+        _deviceThumbRequested.Clear();
 
         // Tancar visor
         CloseViewer();

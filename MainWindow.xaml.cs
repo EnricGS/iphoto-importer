@@ -276,6 +276,17 @@ public partial class MainWindow : Window
         }
     }
 
+    // Càrrega mandrosa de miniatures del dispositiu: quan una cel·la es realitza o es
+    // recicla cap a una foto nova, demanem la seva miniatura. Amb virtualització per
+    // reciclatge, DataContextChanged cobreix tant la realització inicial com l'scroll
+    // (Loaded no es torna a disparar en reciclar). Per a fotos locals no fa res
+    // (RequestDeviceThumbnail surt si no estem en mode dispositiu).
+    private void Thumbnail_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is PhotoItem item)
+            _viewModel.RequestDeviceThumbnail(item);
+    }
+
     private void Thumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement element && element.DataContext is PhotoItem item)

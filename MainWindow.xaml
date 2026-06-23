@@ -724,7 +724,8 @@
                                         Cursor="Hand"
                                         MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
                                         MouseMove="Thumbnail_MouseMove"
-                                        MouseLeftButtonUp="Thumbnail_MouseLeftButtonUp">
+                                        MouseLeftButtonUp="Thumbnail_MouseLeftButtonUp"
+                                        DataContextChanged="Thumbnail_DataContextChanged">
                                     <Grid>
                                         <!-- Miniatura -->
                                         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
@@ -1059,6 +1060,18 @@
                                     <TextBlock Text="&#xE896;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBlock Text="Importar" FontSize="12" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- Enviar a Mirat directament (sense importar al disc); només si hi ha destí actiu -->
+                            <Button Style="{StaticResource BtnPrimary}"
+                                    Command="{Binding UploadSelectedDeviceToMiratCommand}"
+                                    Margin="4,0" Padding="12,8"
+                                    Visibility="{Binding HasActiveMiratDestination, Converter={StaticResource BoolToVis}}"
+                                    ToolTip="Enviar les fotos seleccionades a Mirat sense importar-les al disc">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE753;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Enviar a Mirat" FontSize="12" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             <!-- Eliminar no disponible via MTP/iPhone -->

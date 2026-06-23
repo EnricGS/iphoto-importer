@@ -1211,3 +1211,44 @@ Abans, per pujar fotos de l'iPhone a Mirat calia **importar-les abans al disc**.
 
 ### ⚠️ A FER A LA VERSIÓ WINDOWS (WPF/.NET, MediaDevices)
 Portar les dues coses: (a) càrrega de thumbnails ràpida/mandrosa + dedup sota demanda si pateix la mateixa lentitud amb 34K; (b) **"Enviar a Mirat" directe** des del dispositiu (baixar a temp → `MiratService.UploadPhotoAsync` → esborrar). El `MiratService` de Windows ja existeix (s'usa per a fotos locals).
+
+## 2026-06-23 — Windows: port de thumbnails mandrosos + "Enviar a Mirat" des del dispositiu
+
+Portades a la versió Windows (WPF/.NET 8, MediaDevices) les dues millores que macOS va rebre avui (entrada anterior). Build `dotnet build` correcte: 0 errors, 54 avisos (tots NU190x preexistents de `Magick.NET-Q8-AnyCPU` 14.11.1, cap de nou).
+
+### 1. Thumbnails del dispositiu mandrosos (lazy per cel·la)
+
+**Problema a Windows**: `LoadDeviceThumbnailsAsync` recorria **totes** les fotos del dispositiu (`foreach item in Photos`) baixant cada miniatura per MTP. Amb 34K fotos, i com que el `DeviceService` serialitza tota operació WPD en un **únic thread STA**, això era una cua de 34K baixades → app penjada amb "spinner infinit", igual que macOS.
+
+**Diferència amb macOS**: el bug de continuations indexades per `file.name` (noms repetits a l'iPhone) **no aplica** a Windows — `GetThumbnailAsync(device, fullPath)` ja s'indexa pel `FullPath` (únic) i la cua STA garanteix exclusió. Tampoc té sentit la "càrrega concurrent (6)": el canal MTP de Windows és single-threaded STA per construcció. El que sí que aplica —i és el guany real— és **carregar només el que es dibuixa**.
+
+**Solució (paritat amb el `.task` per cel·la de SwiftUI)**:
+- Nou `MainViewModel.RequestDeviceThumbnail(PhotoItem)`: baixa la miniatura d'**una** foto sota demanda, amb dedup via `HashSet<string> _deviceThumbRequested` (un sol intent per `FullPath`; s'allibera si falla, per permetre reintent). Surt d'immediat si no estem en mode dispositiu (les fotos locals segueixen amb `LoadThumbnailsAsync`).
+- Wiring a la graella: `DataContextChanged` del `ThumbBorder` (a `MainWindow.xaml` → handler `Thumbnail_DataContextChanged` al code-behind). Amb `VirtualizationMode="Recycling"`, `DataContextChanged` és el hook correcte: es dispara tant en la realització inicial com quan un contenidor es recicla cap a una foto nova en fer scroll (`Loaded` **no** es torna a disparar en reciclar).
+- Eliminades les crides eager `_ = LoadDeviceThumbnailsAsync()` de `BrowseDeviceAsync` i `LoadMoreFromDeviceAsync`. El `_deviceThumbRequested` i el `_deviceThumbnailCts` es reinicien en entrar a browse i es netegen a `ExitDeviceBrowseMode`.
+
+Resultat: en obrir l'iPhone, només es baixen les ~30-50 miniatures visibles; la resta es baixen a mesura que l'usuari fa scroll. **Resol l'"spinner infinit dedup iPhone 34K" a Windows.**
+
+**Dedup sota demanda**: a Windows el browse del dispositiu **ja no** disparava cap escaneig de duplicats automàtic (`ScanForDuplicatesAsync` és només per a carpetes locals; els toggles de filtre de duplicats criden `LoadThumbnailsAsync`, que filtra per `p.IsLocal`). Per tant aquesta part del fix macOS ja estava satisfeta — no calia canvi.
+
+### 2. "Enviar a Mirat" des del dispositiu (sense importar al disc)
+
+Nou `MainViewModel.UploadSelectedDeviceToMiratAsync` (`[RelayCommand]`), paritat amb el botó macOS:
+1. Baixa les seleccionades a la carpeta temporal (`DeviceService.DownloadTempFileAsync`, en sèrie — el canal MTP ho és igualment), creant `PhotoItem` temporals que apunten al fitxer local.
+2. Reusa **tal qual** `UploadPhotosToMiratAsync` (concurrència 3, SHA-256, thumbnail/preview Magick.NET, dedup per hash, reintents) — el mateix flux que les fotos locals.
+3. Esborra els temporals + desmarca la selecció. Sense còpia permanent al disc.
+
+UI: nou botó **"Enviar a Mirat"** (icona núvol `&#xE753;`) a la barra d'accions del mode dispositiu de `MainWindow.xaml`, gated per `HasActiveMiratDestination` (només visible si hi ha un destí Mirat vinculat). Conviu amb el botó "Importar" existent.
+
+**Limitació v1** (igual que macOS): baixada en sèrie; pujada concurrent. Noms repetits a l'iPhone (rar, àlbums diferents) → el segon sobreescriu el temporal del primer (`DownloadTempFileAsync` usa el `FileName` com a nom temporal); la dedup per hash del servidor ho absorbeix.
+
+### Fitxers tocats (Windows)
+
+- `ViewModels/MainViewModel.cs` — `RequestDeviceThumbnail`/`LoadOneDeviceThumbnailAsync` (substitueixen `LoadDeviceThumbnailsAsync`), `_deviceThumbRequested`, reinici/neteja a browse/exit, nou `UploadSelectedDeviceToMiratAsync`.
+- `MainWindow.xaml` — `DataContextChanged` al `ThumbBorder`; botó "Enviar a Mirat" a la barra d'accions del mode dispositiu.
+- `MainWindow.xaml.cs` — handler `Thumbnail_DataContextChanged`.
+
+### Pendent
+
+- **Provar amb un iPhone real** a Windows (el fix macOS es va validar amb el dispositiu de l'usuari; aquí només validat per compilació). Verificar: (a) en obrir l'iPhone les miniatures apareixen progressivament en fer scroll sense penjar-se; (b) seleccionar i "Enviar a Mirat" puja directament i deixa el disc net.
+- Si en proves la baixada en sèrie per a "Enviar a Mirat" amb moltes fotos és lenta, considerar baixada a una subcarpeta temp dedicada + noms únics (mateix camí que caldria per a la baixada concurrent a macOS).
