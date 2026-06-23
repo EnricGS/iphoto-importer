@@ -1874,8 +1874,8 @@ public partial class MainViewModel : ObservableObject
     private async Task DeleteSelectedAsync()
     {
         // Si estem al visor sense cap foto seleccionada a la graella, eliminem la foto
-        // actualment visible. Això permet que el botó de paperera i la tecla Delete
-        // funcionin al visor sense que l'usuari hagi de marcar el checkbox a la graella.
+        // actualment visible. Això permet que la tecla Delete funcioni al visor sense
+        // que l'usuari hagi de marcar el checkbox a la graella.
         if (SelectedPhotos.Count == 0
             && (IsViewerOpen || IsSplitViewerVisible)
             && ViewerCurrentItem != null)
@@ -1884,14 +1884,47 @@ public partial class MainViewModel : ObservableObject
         }
 
         if (SelectedPhotos.Count == 0) return;
+        await DeleteLocalFilesAsync(SelectedPhotos.ToList());
+    }
+
+    /// <summary>
+    /// Elimina NOMÉS la foto que s'està veient al visor, sense tocar la resta de la
+    /// selecció de la graella. La criden els botons de paperera del visor i la tecla
+    /// Del quan el visor és obert (paritat amb deleteCurrentViewerPhoto de macOS).
+    /// Per eliminar la selecció, s'usa la paperera de la barra d'accions de la graella.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteCurrentViewerAsync()
+    {
+        var item = ViewerCurrentItem;
+        if (item == null) return;
+
+        // A l'iPhone (mode browse del dispositiu) no es pot eliminar via MTP a Windows
+        // (DeleteFile es congela indefinidament). Avisem i no fem res.
+        if (IsDeviceBrowseMode)
+        {
+            StatusMessage = "No es poden eliminar fotos de l'iPhone des de Windows.";
+            return;
+        }
+
+        await DeleteLocalFilesAsync([item]);
+    }
+
+    /// <summary>
+    /// Nucli compartit d'eliminació local: envia els fitxers a la paperera de
+    /// reciclatge, els treu de la llista mestra i de la vista, avança el visor si la
+    /// foto visible era entre les eliminades, i registra l'estat d'undo (1 nivell).
+    /// Només treu de la selecció els ítems realment eliminats — la resta es manté.
+    /// </summary>
+    private async Task DeleteLocalFilesAsync(List<PhotoItem> filesToDelete)
+    {
+        if (filesToDelete.Count == 0) return;
 
         // Nota (macOS bug 3): la paperera del sistema ja és reversible i tenim undo explícit
         // al toast, així que s'ha tret la doble confirmació MessageBox.
 
         IsLoading = true;
         HasError = false;
-
-        var filesToDelete = SelectedPhotos.ToList();
 
         // Capturar estat del visor abans del delete — si estem mirant una foto que s'eliminarà
         // cal avançar el visor a la següent enlloc de quedar-se a un índex obsolet (bug 5 macOS).

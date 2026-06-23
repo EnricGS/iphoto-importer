@@ -150,9 +150,17 @@ public partial class MainWindow : Window
     {
         if (e.Key != Key.Delete) return;
 
-        // El command ja gestiona el cas "visor sense selecció" internament.
-        var viewerActive = _viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible;
-        if (viewerActive || _viewModel.SelectedPhotosCount > 0)
+        // Viewer-aware: amb el visor obert (overlay o split mostrant una foto), Del elimina
+        // NOMÉS la foto del visor i deixa intacta la selecció de la graella. Amb el visor
+        // tancat, Del elimina la selecció. (Paritat amb el fix macOS del 2026-06-23.)
+        var viewerShowing = (_viewModel.IsViewerOpen || _viewModel.IsSplitViewerVisible)
+                            && _viewModel.ViewerCurrentItem != null;
+        if (viewerShowing)
+        {
+            _viewModel.DeleteCurrentViewerCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (_viewModel.SelectedPhotosCount > 0)
         {
             _viewModel.DeleteSelectedCommand.Execute(null);
             e.Handled = true;

@@ -1125,7 +1125,7 @@
 
                         <!-- Eliminar (macOS: trash) -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
-                                Command="{Binding DeleteSelectedCommand}" ToolTip="Eliminar (Del)" Padding="6,4">
+                                Command="{Binding DeleteCurrentViewerCommand}" ToolTip="Eliminar aquesta foto (Del)" Padding="6,4">
                             <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                        Foreground="{StaticResource DangerColor}"/>
                         </Button>
@@ -1270,7 +1270,7 @@
 
                         <!-- Eliminar (macOS: trash) -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
-                                Command="{Binding DeleteSelectedCommand}" ToolTip="Eliminar (Del)"
+                                Command="{Binding DeleteCurrentViewerCommand}" ToolTip="Eliminar aquesta foto (Del)"
                                 Margin="8,0,0,0">
                             <TextBlock Text="&#xE74D;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
                                        Foreground="{StaticResource DangerColor}"/>

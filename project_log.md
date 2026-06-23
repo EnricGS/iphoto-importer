@@ -1286,3 +1286,29 @@ Mateix bug. Els dos botons paperera del visor (`MainWindow.xaml` ~1128 i ~1273) 
 - `Views/ViewerOverlayView.swift`, `Views/ViewerPanelView.swift` — botons paperera del visor.
 - `Views/ContentView.swift` — tecla Del viewer-aware.
 - `Views/ActionBarView.swift` — drecera `.delete` viewer-aware.
+
+## 2026-06-23 — Windows: port del fix de la paperera del visor
+
+Portat a WPF el fix de l'entrada anterior (el seu "⚠️ A FER A LA VERSIÓ WINDOWS"). Build `dotnet build` net: 0 errors, 54 avisos NU190x preexistents.
+
+**Fix**:
+- Refactoritzat `DeleteSelectedAsync`: el nucli d'eliminació passa a un helper privat `DeleteLocalFilesAsync(List<PhotoItem>)` (paperera de reciclatge + treure de `_allPhotos`/`Photos`/selecció + avanç del visor + undo 1 nivell). `DeleteSelectedAsync` només construeix la llista (selecció, o la foto del visor si no hi ha selecció) i el crida. Comportament extern idèntic — el flux "Moure a Mirat" que també crida `DeleteSelectedAsync` no canvia.
+- Nova comanda `DeleteCurrentViewerAsync` (`[RelayCommand]`): elimina **només** `ViewerCurrentItem` via el helper, així que la resta de la selecció de la graella es manté intacta. En mode dispositiu fa no-op amb avís ("No es poden eliminar fotos de l'iPhone des de Windows") perquè el delete via MTP no és possible a Windows (constraint preexistent; aquí NO hi ha `deleteCurrentViewerFromDevice` real com a macOS).
+- Recablejats els dos botons de paperera del visor (`MainWindow.xaml`: overlay i panell split) de `DeleteSelectedCommand` → `DeleteCurrentViewerCommand`; tooltip actualitzat a "Eliminar aquesta foto (Del)".
+- `Window_PreviewKeyDown` (tecla Del) fet viewer-aware: visor obert mostrant una foto (`ViewerCurrentItem != null`) → `DeleteCurrentViewerCommand`; visor tancat → `DeleteSelectedCommand` sobre la selecció.
+
+La paperera de la barra d'accions de la graella (mode local) segueix amb `DeleteSelectedCommand` — és la via per eliminar la selecció.
+
+### Diferència amb macOS
+
+macOS té `deleteCurrentViewerFromDevice` que esborra del propi iPhone. A Windows el delete via MTP es congela (limitació documentada des de 2026-04-06), així que la versió device de `DeleteCurrentViewer` és un no-op informatiu en lloc d'esborrar del dispositiu.
+
+### Fitxers tocats (Windows)
+
+- `ViewModels/MainViewModel.cs` — `DeleteCurrentViewerAsync` nou + helper `DeleteLocalFilesAsync` (refactor de `DeleteSelectedAsync`).
+- `MainWindow.xaml` — dos botons de paperera del visor recablejats.
+- `MainWindow.xaml.cs` — `Window_PreviewKeyDown` viewer-aware.
+
+### Pendent
+
+- Provar a Windows: (a) amb fotos seleccionades a la graella i el visor obert, la paperera del visor / Del eliminen **només** la foto vista i mantenen la selecció; (b) l'avanç del visor a la següent foto funciona; (c) Ctrl+Z restaura; (d) la paperera de la barra d'accions segueix eliminant la selecció.
