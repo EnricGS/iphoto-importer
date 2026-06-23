@@ -66,9 +66,11 @@ final class DeviceImportService: NSObject {
     private var downloadContinuation: CheckedContinuation<Void, Never>?
     private var tempDownloadContinuations: [String: CheckedContinuation<Void, Never>] = [:]
     private var sessionContinuation: CheckedContinuation<Bool, Never>?
-    // Clau = identitat de l'objecte ICCameraFile (NO el nom: a l'iPhone hi ha noms
-    // repetits, p.ex. IMG_0001.jpg en àlbums diferents → xocarien en paral·lel).
-    private var thumbnailContinuations: [ObjectIdentifier: CheckedContinuation<CGImage?, Never>] = [:]
+    // Clau = nom del fitxer (l'ICCameraItem que torna el delegate NO és la mateixa
+    // instància que el file demanat → ObjectIdentifier no casa mai). Per absorbir els
+    // noms repetits de l'iPhone (IMG_0001.jpg en àlbums diferents, demanats en
+    // paral·lel) cada clau té una CUA FIFO de continuations.
+    private var thumbnailContinuations: [String: [CheckedContinuation<CGImage?, Never>]] = [:]
     private var deleteContinuation: CheckedContinuation<Void, Never>?
     private var metadataContinuations: [String: CheckedContinuation<[AnyHashable: Any]?, Never>] = [:]
     private var catalogContinuation: CheckedContinuation<Void, Never>?
@@ -310,14 +312,16 @@ final class DeviceImportService: NSObject {
             return NSImage(cgImage: thumb, size: NSSize(width: thumb.width, height: thumb.height))
         }
 
-        let key = ObjectIdentifier(file)
+        let key = file.name ?? ""
         let cgImage: CGImage? = await withCheckedContinuation { (cont: CheckedContinuation<CGImage?, Never>) in
-            thumbnailContinuations[key] = cont
+            thumbnailContinuations[key, default: []].append(cont)
             file.requestThumbnail()
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                if let self, let pending = self.thumbnailContinuations.removeValue(forKey: key) {
-                    pending.resume(returning: nil)
-                }
+                guard let self, var queue = self.thumbnailContinuations[key], !queue.isEmpty else { return }
+                // Resol amb nil la més antiga pendent d'aquesta clau (poden compartir nom).
+                let pending = queue.removeFirst()
+                self.thumbnailContinuations[key] = queue.isEmpty ? nil : queue
+                pending.resume(returning: nil)
             }
         }
 
@@ -501,7 +505,7 @@ final class DeviceImportService: NSObject {
         }
         let pendingThumbs = thumbnailContinuations
         thumbnailContinuations.removeAll()
-        for (_, cont) in pendingThumbs { cont.resume(returning: nil) }
+        for (_, queue) in pendingThumbs { for cont in queue { cont.resume(returning: nil) } }
 
         let pendingTemps = tempDownloadContinuations
         tempDownloadContinuations.removeAll()
@@ -642,10 +646,14 @@ extension DeviceImportService: ICCameraDeviceDelegate {
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didRemove items: [ICCameraItem]) {}
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didReceiveThumbnail thumbnail: CGImage?, for item: ICCameraItem, error: (any Error)?) {
         Task { @MainActor in
-            let key = ObjectIdentifier(item)
-            if let cont = thumbnailContinuations.removeValue(forKey: key) {
-                cont.resume(returning: thumbnail)
+            let key = item.name ?? ""
+            guard var queue = thumbnailContinuations[key], !queue.isEmpty else {
+                logger.debug("Thumbnail rebut sense continuation pendent per '\(key, privacy: .public)'")
+                return
             }
+            let cont = queue.removeFirst()
+            thumbnailContinuations[key] = queue.isEmpty ? nil : queue
+            cont.resume(returning: thumbnail)
         }
     }
     nonisolated func cameraDevice(_ camera: ICCameraDevice, didCompleteDeleteFilesWithError error: (any Error)?) {

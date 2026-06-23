@@ -1252,3 +1252,15 @@ UI: nou botó **"Enviar a Mirat"** (icona núvol `&#xE753;`) a la barra d'accion
 
 - **Provar amb un iPhone real** a Windows (el fix macOS es va validar amb el dispositiu de l'usuari; aquí només validat per compilació). Verificar: (a) en obrir l'iPhone les miniatures apareixen progressivament en fer scroll sense penjar-se; (b) seleccionar i "Enviar a Mirat" puja directament i deixa el disc net.
 - Si en proves la baixada en sèrie per a "Enviar a Mirat" amb moltes fotos és lenta, considerar baixada a una subcarpeta temp dedicada + noms únics (mateix camí que caldria per a la baixada concurrent a macOS).
+
+## 2026-06-23 — macOS: fix regressió — els thumbnails del dispositiu no carregaven
+
+El mateix dia, el canvi de thumbnails ràpids (`7317076`) va introduir una regressió: en mode browse de l'iPhone **cap miniatura carregava** (placeholders pertot, fins i tot a les cel·les visibles). Validat per l'usuari amb captura.
+
+**Causa**: la continuation del thumbnail s'havia passat a clau `ObjectIdentifier(file)`. Però l'`ICCameraItem` que ImageCaptureCore torna al delegate `didReceiveThumbnail(_:for:)` **no és la mateixa instància** que el `file` sobre el qual es crida `requestThumbnail()` → la clau no casava mai → la continuation no es resolia → timeout de 10s → `nil` → placeholder permanent. Per nom (codi anterior) sí casava, perquè el nom és idèntic entre petició i resposta.
+
+**Fix**: clau per **nom** (`file.name`/`item.name`), però amb una **cua FIFO de continuations per clau** — això resol de debò el motiu pel qual s'havia provat `ObjectIdentifier` (noms repetits de l'iPhone demanats en paral·lel ja no es trepitgen; cada petició ocupa el seu lloc a la cua i el delegate en resol la més antiga). El timeout treu també la més antiga pendent de la clau. Net de continuations a la desconnexió adaptat a la cua.
+
+**Lliçó**: amb ImageCaptureCore no es pot assumir identitat d'objecte (`ObjectIdentifier`) entre el `file` enumerat i l'`item` del delegate; cal casar per una propietat estable (nom) i gestionar les col·lisions amb una cua, no canviant la clau a identitat.
+
+- `Services/DeviceImportService.swift` — `thumbnailContinuations` passa a `[String: [Continuation]]`; `requestThumbnail`, delegate i neteja adaptats; log diagnòstic al delegate.
