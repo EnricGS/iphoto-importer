@@ -218,6 +218,16 @@ struct ContentView: View {
         }
 
         if press.key == .delete || press.key == .deleteForward {
+            // Amb el visor obert, Delete elimina NOMÉS la foto del visor (com la
+            // paperera del visor), sense tocar la selecció.
+            if viewModel.isViewerOpen {
+                if viewModel.isDeviceBrowseMode {
+                    Task { await viewModel.deleteCurrentViewerFromDevice() }
+                } else {
+                    Task { await viewModel.deleteCurrentViewerPhoto() }
+                }
+                return .handled
+            }
             if viewModel.selectedPhotosCount > 0 {
                 if viewModel.isDeviceBrowseMode {
                     Task { await viewModel.deleteSelectedFromDevice() }

@@ -1665,6 +1665,57 @@ final class MainViewModel {
         isLoading = false
     }
 
+    /// Paperera del VISOR: elimina NOMÉS la foto actual del visor, sense tocar la
+    /// selecció (les fotos seleccionades es mantenen seleccionades). Per eliminar la
+    /// selecció s'usa la paperera de la galeria (`deleteSelected`).
+    func deleteCurrentViewerPhoto() async {
+        guard let item = viewerCurrentItem else { return }
+
+        isLoading = true
+        hasError = false
+
+        let filesToDelete = [item]
+
+        do {
+            let result = try await fileService.deleteFiles(filesToDelete) { [weak self] current, total, fileName in
+                Task { @MainActor [weak self] in
+                    self?.statusMessage = "Eliminant \(current)/\(total): \(fileName)"
+                }
+            }
+
+            let previousViewerIndex = viewerIndex
+
+            allPhotos.removeAll { $0 == item }
+            photos.removeAll { $0 == item }
+            // Només treu de la selecció la foto eliminada (ja no existeix); la resta
+            // de fotos seleccionades es manté intacta.
+            selectedPhotos.remove(item)
+            item.isSelected = false
+
+            photoCount = allPhotos.filter { !$0.isVideo }.count
+            videoCount = allPhotos.filter { $0.isVideo }.count
+
+            // Guardar estat per undo (1 nivell — sobreescriu l'anterior)
+            lastDeletedItems = filesToDelete
+            lastDeletedTrashPairs = result.trashedPairs
+
+            // Avançar a la següent foto del visor (o tancar si no en queden)
+            if photos.isEmpty {
+                closeViewer()
+            } else {
+                let newIndex = min(previousViewerIndex, photos.count - 1)
+                navigateViewer(to: newIndex)
+            }
+
+            statusMessage = "\(result.deleted) fitxer(s) moguts a la paperera — Cmd+Z per desfer"
+        } catch {
+            hasError = true
+            statusMessage = "Error eliminant: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+    }
+
     /// Tanca el toast d'undo sense restaurar res.
     func dismissUndoToast() {
         lastDeletedItems = []
@@ -2062,6 +2113,41 @@ final class MainViewModel {
         }
 
         statusMessage = "\(files.count) fitxer(s) eliminat(s). \(allPhotos.count) restants al dispositiu."
+    }
+
+    /// Paperera del VISOR en mode dispositiu: elimina NOMÉS la foto actual del visor,
+    /// sense tocar la selecció.
+    func deleteCurrentViewerFromDevice() async {
+        guard let item = viewerCurrentItem, let file = item.cameraFile else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Eliminar del dispositiu"
+        alert.informativeText = "Eliminar permanentment «\(item.fileName)» de \(deviceService.selectedDevice?.name ?? "dispositiu")?\n\nAquesta acció no es pot desfer."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Eliminar")
+        alert.addButton(withTitle: "Cancel·lar")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        await deviceService.deleteFiles([file])
+
+        let previousViewerIndex = viewerIndex
+
+        allPhotos.removeAll { $0 == item }
+        selectedPhotos.remove(item)
+        item.isSelected = false
+        photoCount = allPhotos.filter { !$0.isVideo }.count
+        videoCount = allPhotos.filter { $0.isVideo }.count
+        applyFilter()
+
+        if photos.isEmpty {
+            closeViewer()
+        } else {
+            let newIndex = min(previousViewerIndex, photos.count - 1)
+            navigateViewer(to: newIndex)
+        }
+
+        statusMessage = "1 fitxer eliminat. \(allPhotos.count) restants al dispositiu."
     }
 
     func exitDeviceBrowseMode() {

@@ -129,17 +129,12 @@ struct ViewerPanelView: View {
             .buttonStyle(IconButtonStyle())
             .help("Copiar foto al destí (C)")
 
-            // Delete current photo
+            // Delete current photo — NOMÉS la del visor, sense tocar la selecció.
             Button {
-                if let item = viewModel.viewerCurrentItem {
-                    if !item.isSelected {
-                        viewModel.toggleSelection(for: item)
-                    }
-                    if viewModel.isDeviceBrowseMode {
-                        Task { await viewModel.deleteSelectedFromDevice() }
-                    } else {
-                        Task { await viewModel.deleteSelected() }
-                    }
+                if viewModel.isDeviceBrowseMode {
+                    Task { await viewModel.deleteCurrentViewerFromDevice() }
+                } else {
+                    Task { await viewModel.deleteCurrentViewerPhoto() }
                 }
             } label: {
                 Image(systemName: "trash")

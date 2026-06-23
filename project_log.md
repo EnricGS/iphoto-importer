@@ -1264,3 +1264,25 @@ El mateix dia, el canvi de thumbnails ràpids (`7317076`) va introduir una regre
 **Lliçó**: amb ImageCaptureCore no es pot assumir identitat d'objecte (`ObjectIdentifier`) entre el `file` enumerat i l'`item` del delegate; cal casar per una propietat estable (nom) i gestionar les col·lisions amb una cua, no canviant la clau a identitat.
 
 - `Services/DeviceImportService.swift` — `thumbnailContinuations` passa a `[String: [Continuation]]`; `requestThumbnail`, delegate i neteja adaptats; log diagnòstic al delegate.
+
+## 2026-06-23 — macOS: fix — la paperera del visor esborrava la selecció
+
+La paperera del visor (i la tecla Del amb el visor obert) eliminava **totes les fotos seleccionades** en comptes de només la foto que s'estava veient. El botó feia `toggleSelection(viewerCurrentItem)` + `deleteSelected()` → afegia la foto del visor a la selecció i esborrava tot el conjunt. Validat per l'usuari.
+
+**Comportament correcte** (demanat per l'usuari): la paperera del visor només ha d'eliminar la foto del visor; les fotos seleccionades es mantenen seleccionades. Per eliminar la selecció s'usa la paperera de la galeria.
+
+**Fix**:
+- Noves `deleteCurrentViewerPhoto()` (local) i `deleteCurrentViewerFromDevice()` (dispositiu): eliminen NOMÉS `viewerCurrentItem`, avancen el visor a la següent foto (o el tanquen si era l'última), treuen de la selecció només la foto eliminada i deixen la resta intacta. La versió local manté l'undo (⌘Z).
+- Botons paperera del visor (`ViewerOverlayView`, `ViewerPanelView`) recablejats a les noves funcions (fora el `toggleSelection` previ).
+- Tecla **Del** (`ContentView`) i drecera `.delete` de l'`ActionBar` fetes viewer-aware: amb el visor obert eliminen la foto del visor; tancat, la selecció. (L'`ActionBar` queda sota l'overlay del visor amb la drecera activa, per això també s'hi blinda.)
+
+### ⚠️ A FER A LA VERSIÓ WINDOWS
+
+Mateix bug. Els dos botons paperera del visor (`MainWindow.xaml` ~1128 i ~1273) i la drecera Del criden `DeleteSelectedCommand` → esborren la selecció. Cal una comanda `DeleteCurrentViewer` (+ versió device) que elimini només `ViewerCurrentItem` sense tocar la selecció, recablejar els dos botons, i fer que la drecera Del esborri la foto del visor quan el visor és obert.
+
+### Fitxers tocats (macOS)
+
+- `ViewModels/MainViewModel.swift` — `deleteCurrentViewerPhoto`, `deleteCurrentViewerFromDevice`.
+- `Views/ViewerOverlayView.swift`, `Views/ViewerPanelView.swift` — botons paperera del visor.
+- `Views/ContentView.swift` — tecla Del viewer-aware.
+- `Views/ActionBarView.swift` — drecera `.delete` viewer-aware.

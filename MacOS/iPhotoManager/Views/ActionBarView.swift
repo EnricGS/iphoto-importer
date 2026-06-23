@@ -101,7 +101,13 @@ struct ActionBarView: View {
                 .help("Move selected to another folder")
 
                 Button {
-                    Task { await viewModel.deleteSelected() }
+                    // Amb el visor obert, Delete elimina NOMÉS la foto del visor
+                    // (la drecera .delete segueix activa sota l'overlay del visor).
+                    if viewModel.isViewerOpen {
+                        Task { await viewModel.deleteCurrentViewerPhoto() }
+                    } else {
+                        Task { await viewModel.deleteSelected() }
+                    }
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 14))
