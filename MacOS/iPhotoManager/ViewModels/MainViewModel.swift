@@ -1117,10 +1117,10 @@ final class MainViewModel {
         viewerDownloadTask?.cancel()
         viewerDownloadTask = nil
 
-        // Device items: show thumbnail first, then download full-res
+        // Device items: show thumbnail first, then download (imatge → full-res;
+        // vídeo → fitxer temporal per reproduir). No són fitxers locals, així que
+        // AVPlayer/ImageIO no poden llegir-los directament del telèfon.
         if !item.isLocal {
-            isViewingVideo = false
-            viewerVideoURL = nil
             // Show thumbnail if available; keep previous image as fallback
             // so there's visual feedback during navigation
             if let thumb = item.thumbnail {
@@ -1128,23 +1128,60 @@ final class MainViewModel {
             }
             updateViewerInfo(for: item)
 
-            if let cameraFile = item.cameraFile {
+            guard let cameraFile = item.cameraFile else {
+                isViewingVideo = false
+                viewerVideoURL = nil
+                return
+            }
+
+            if item.isVideo {
+                // Vídeo del dispositiu: el baixem a temp i el reproduïm des d'allà.
+                // Mentre es baixa es veu la miniatura (la vista cau a viewerImage
+                // perquè viewerVideoURL encara és nil).
+                isViewingVideo = true
+                viewerVideoRotation = item.videoRotation
+                viewerVideoURL = nil
+                statusMessage = "Baixant vídeo del dispositiu…"
                 viewerDownloadTask = Task {
                     guard !Task.isCancelled else { return }
-                    if let localPath = await deviceService.downloadTempFile(cameraFile) {
-                        guard !Task.isCancelled, viewerCurrentItem == item else { return }
-                        let image = await Task.detached(priority: .userInitiated) { [fileService] in
-                            fileService.loadFullImage(at: localPath)
+                    let localPath = await deviceService.downloadTempFile(cameraFile)
+                    guard !Task.isCancelled, viewerCurrentItem == item else { return }
+                    guard let localPath else {
+                        statusMessage = "No s'ha pogut baixar el vídeo del dispositiu."
+                        return
+                    }
+                    viewerVideoURL = URL(fileURLWithPath: localPath)
+                    updateStatusMessage()
+                    if item.videoRotation == 0 {
+                        let rotation = await Task.detached(priority: .utility) {
+                            FileService.getVideoRotation(filePath: localPath)
                         }.value
-                        if let image, !Task.isCancelled, viewerCurrentItem == item {
-                            viewerImage = image
-                            if item.pixelWidth == 0 {
-                                let rep = image.representations.first
-                                item.pixelWidth = rep?.pixelsWide ?? Int(image.size.width)
-                                item.pixelHeight = rep?.pixelsHigh ?? Int(image.size.height)
-                            }
-                            updateViewerInfo(for: item)
+                        guard viewerCurrentItem == item else { return }
+                        item.videoRotation = rotation
+                        viewerVideoRotation = rotation
+                    }
+                }
+                return
+            }
+
+            // Imatge del dispositiu
+            isViewingVideo = false
+            viewerVideoURL = nil
+            viewerDownloadTask = Task {
+                guard !Task.isCancelled else { return }
+                if let localPath = await deviceService.downloadTempFile(cameraFile) {
+                    guard !Task.isCancelled, viewerCurrentItem == item else { return }
+                    let image = await Task.detached(priority: .userInitiated) { [fileService] in
+                        fileService.loadFullImage(at: localPath)
+                    }.value
+                    if let image, !Task.isCancelled, viewerCurrentItem == item {
+                        viewerImage = image
+                        if item.pixelWidth == 0 {
+                            let rep = image.representations.first
+                            item.pixelWidth = rep?.pixelsWide ?? Int(image.size.width)
+                            item.pixelHeight = rep?.pixelsHigh ?? Int(image.size.height)
                         }
+                        updateViewerInfo(for: item)
                     }
                 }
             }

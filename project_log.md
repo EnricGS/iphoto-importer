@@ -1312,3 +1312,23 @@ macOS té `deleteCurrentViewerFromDevice` que esborra del propi iPhone. A Window
 ### Pendent
 
 - Provar a Windows: (a) amb fotos seleccionades a la graella i el visor obert, la paperera del visor / Del eliminen **només** la foto vista i mantenen la selecció; (b) l'avanç del visor a la següent foto funciona; (c) Ctrl+Z restaura; (d) la paperera de la barra d'accions segueix eliminant la selecció.
+
+## 2026-06-23 — macOS: fix — els vídeos del dispositiu no es reproduïen al visor
+
+En mode browse de l'iPhone, obrir un vídeo al visor només mostrava la miniatura: no es reproduïa. Validat per l'usuari.
+
+**Causa**: a `loadViewerImage`, els ítems del dispositiu (`!isLocal`) sortien tots per la mateixa branca, que baixava el fitxer a temp i l'intentava obrir com a **imatge** (`fileService.loadFullImage`) — que torna nil per un vídeo — i feia `return` abans d'arribar mai al codi de vídeo (`if item.isVideo`). Resultat: `isViewingVideo` quedava `false` i el reproductor no apareixia.
+
+**Fix**: la branca de dispositiu ara bifurca imatge vs vídeo:
+- **Vídeo**: `isViewingVideo = true`, baixa el fitxer a temp (`downloadTempFile`) i posa `viewerVideoURL` → s'activa l'`AVPlayer`. Mentre es baixa es veu la miniatura (la vista cau a `viewerImage` perquè `viewerVideoURL` encara és nil) + status "Baixant vídeo del dispositiu…"; en acabar restaura el peu (`updateStatusMessage`) i llegeix la rotació del fitxer baixat.
+- **Imatge**: igual que abans.
+
+`VideoPlayerView`/`AVPlayerNSView` ja reconfiguren el player quan canvia la URL i mostren error si no es pot reproduir, així que navegar entre vídeos del telèfon també funciona.
+
+**Limitació v1**: la baixada del vídeo no mostra progrés concret (`downloadTempFile` no l'exposa) — només miniatura + missatge; navegar a un altre ítem cancel·la la baixada (`viewerDownloadTask`).
+
+### ⚠️ A FER A LA VERSIÓ WINDOWS
+
+Comprovar si el visor de la versió WPF reprodueix vídeos del dispositiu; molt probablement té el mateix problema (cal baixar a temp i reproduir, no llegir del `FullPath` del dispositiu).
+
+- `ViewModels/MainViewModel.swift` — `loadViewerImage`: bifurcació imatge/vídeo per ítems de dispositiu.
