@@ -552,7 +552,8 @@ public partial class MainWindow : Window
             player.LayoutTransform = new System.Windows.Media.RotateTransform(rotation);
         }
 
-        // Només carregar vídeos locals (paths MTP del dispositiu no es poden reproduir)
+        // ViewerVideoPath sempre és un fitxer local: per al dispositiu, el vídeo s'ha
+        // baixat abans a temp (LoadDeviceVideoAsync) i aquí n'arriba el path temporal.
         if (Uri.TryCreate(path, UriKind.Absolute, out var uri))
         {
             player.Source = uri;

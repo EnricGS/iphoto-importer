@@ -1401,34 +1401,47 @@ public partial class MainViewModel : ObservableObject
         if (item.IsVideo)
         {
             IsViewingVideo = true;
-            ViewerVideoPath = item.IsLocal ? item.FullPath : null;
             ViewerImage = item.Thumbnail;
             UpdateViewerInfo(item);
 
-            // Rotació del vídeo:
-            // - Si ja es coneix (llegida durant l'scan de carpeta), aplicar-la ja.
-            // - Si no, llegir-la en background per no bloquejar la UI en obrir vídeos
-            //   grans (mateixa mitigació que macOS bug 1).
-            if (item.IsLocal && item.VideoRotation == 0)
+            if (item.IsLocal)
             {
-                ViewerVideoRotation = 0;
-                var targetItem = item;
-                var path = item.FullPath;
-                _ = Task.Run(() =>
+                ViewerVideoPath = item.FullPath;
+
+                // Rotació del vídeo:
+                // - Si ja es coneix (llegida durant l'scan de carpeta), aplicar-la ja.
+                // - Si no, llegir-la en background per no bloquejar la UI en obrir vídeos
+                //   grans (mateixa mitigació que macOS bug 1).
+                if (item.VideoRotation == 0)
                 {
-                    var rot = FileService.GetVideoRotation(path);
-                    Application.Current?.Dispatcher.Invoke(() =>
+                    ViewerVideoRotation = 0;
+                    var targetItem = item;
+                    var path = item.FullPath;
+                    _ = Task.Run(() =>
                     {
-                        targetItem.VideoRotation = rot;
-                        // Només actualitzar el visor si encara estem mirant aquest mateix ítem.
-                        if (ViewerCurrentItem == targetItem)
-                            ViewerVideoRotation = rot;
+                        var rot = FileService.GetVideoRotation(path);
+                        Application.Current?.Dispatcher.Invoke(() =>
+                        {
+                            targetItem.VideoRotation = rot;
+                            // Només actualitzar el visor si encara estem mirant aquest mateix ítem.
+                            if (ViewerCurrentItem == targetItem)
+                                ViewerVideoRotation = rot;
+                        });
                     });
-                });
+                }
+                else
+                {
+                    ViewerVideoRotation = item.VideoRotation;
+                }
             }
             else
             {
-                ViewerVideoRotation = item.VideoRotation;
+                // Dispositiu: el path MTP no es pot reproduir directament al MediaElement.
+                // Cal baixar el vídeo a temp i fixar ViewerVideoPath quan estigui (vegeu
+                // LoadDeviceVideoAsync). Path null de moment → es veu la miniatura mentre baixa.
+                ViewerVideoPath = null;
+                ViewerVideoRotation = 0;
+                _ = LoadDeviceVideoAsync(item);
             }
             return;
         }
@@ -2328,12 +2341,45 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Descarrega un vídeo del dispositiu a temp i el reprodueix al visor. El path MTP
+    /// no es pot passar directament al MediaElement, així que baixem el fitxer i fixem
+    /// ViewerVideoPath al temporal — el code-behind (LoadVideoInActivePlayer) reacciona
+    /// al canvi i el reprodueix. Paritat amb el fix macOS 2026-06-23 (loadViewerImage
+    /// bifurca imatge/vídeo per als ítems del dispositiu).
+    /// </summary>
+    private async Task LoadDeviceVideoAsync(PhotoItem item)
+    {
+        if (SelectedDevice == null || _deviceService == null) return;
+
+        try
+        {
+            StatusMessage = "Baixant vídeo del dispositiu...";
+            var tempPath = await _deviceService.DownloadTempFileAsync(SelectedDevice, item);
+            if (tempPath == null || ViewerCurrentItem != item) return;
+
+            // Llegir la rotació del fitxer baixat ABANS de fixar el path: el handler de
+            // ViewerVideoPath (code-behind) aplica ViewerVideoRotation en aquell moment.
+            var rot = await Task.Run(() => FileService.GetVideoRotation(tempPath));
+            if (ViewerCurrentItem != item) return;
+
+            item.VideoRotation = rot;
+            ViewerVideoRotation = rot;
+            ViewerVideoPath = tempPath;   // dispara LoadVideoInActivePlayer → reprodueix
+            UpdateStatusMessage();
+        }
+        catch
+        {
+            if (ViewerCurrentItem == item) UpdateStatusMessage();
+        }
+    }
+
+    /// <summary>
     /// Descarrega un fitxer del dispositiu a temp i el carrega al visor.
     /// </summary>
     private async Task LoadDeviceFullImageAsync(PhotoItem item)
     {
         if (SelectedDevice == null || _deviceService == null) return;
-        if (item.IsVideo) return; // Vídeos no es descarreguen per previsualitzar
+        if (item.IsVideo) return; // Vídeos es gestionen a LoadDeviceVideoAsync
 
         try
         {

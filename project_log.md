@@ -1332,3 +1332,29 @@ En mode browse de l'iPhone, obrir un vídeo al visor només mostrava la miniatur
 Comprovar si el visor de la versió WPF reprodueix vídeos del dispositiu; molt probablement té el mateix problema (cal baixar a temp i reproduir, no llegir del `FullPath` del dispositiu).
 
 - `ViewModels/MainViewModel.swift` — `loadViewerImage`: bifurcació imatge/vídeo per ítems de dispositiu.
+
+## 2026-06-23 — Windows: port — reproduir vídeos del dispositiu al visor
+
+Confirmat el mateix bug a WPF i portat el fix. Build `dotnet build` net: 0 errors, 54 avisos NU190x preexistents.
+
+**Causa a Windows**: a `LoadViewerImage`, el branch de vídeo feia `ViewerVideoPath = item.IsLocal ? item.FullPath : null` → per a un vídeo del dispositiu quedava **null** (el path MTP no es pot passar al `MediaElement`), i `LoadDeviceFullImageAsync` salta els vídeos. Resultat: `IsViewingVideo=true` però sense font → només es veia la miniatura.
+
+**Fix** (encaixa amb el code-behind existent — `LoadVideoInActivePlayer` ja reacciona a **qualsevol** canvi de `ViewerVideoPath`):
+- Branch de vídeo de `LoadViewerImage` bifurcat **local vs dispositiu**:
+  - Local: com abans (`ViewerVideoPath = FullPath`, rotació coneguda o llegida en background).
+  - Dispositiu: `ViewerVideoPath = null` (es veu la miniatura) + `_ = LoadDeviceVideoAsync(item)`.
+- Nou `LoadDeviceVideoAsync(item)`: baixa el vídeo a temp (`DeviceService.DownloadTempFileAsync`), llegeix la rotació del fitxer baixat (en `Task.Run`, abans de fixar el path perquè el handler l'apliqui), i fixa `ViewerVideoPath` al temporal → el code-behind reprodueix des del fitxer local. Mentre baixa, status "Baixant vídeo del dispositiu…"; en acabar `UpdateStatusMessage()`. Guard `ViewerCurrentItem != item` per si l'usuari navega.
+- Comentari del code-behind actualitzat: `ViewerVideoPath` ara sempre és un fitxer local (temporal per al dispositiu).
+
+Navegar entre vídeos del telèfon funciona: en obrir el següent, `ViewerVideoPath=null` atura el reproductor (el handler fa Stop+Source=null) i s'inicia una nova baixada.
+
+**Limitació v1** (com macOS): la baixada del vídeo no mostra progrés concret (`DownloadTempFileAsync` no l'exposa) — només miniatura + missatge. La baixada no es cancel·la en navegar (el guard descarta el resultat); per a vídeos grans es podria afegir cancel·lació via CTS més endavant.
+
+### Fitxers tocats (Windows)
+
+- `ViewModels/MainViewModel.cs` — `LoadDeviceVideoAsync` nou + bifurcació local/dispositiu al branch de vídeo de `LoadViewerImage`.
+- `MainWindow.xaml.cs` — comentari aclarit a `LoadVideoInActivePlayer` (cap canvi de lògica; ja servia per a qualsevol path local).
+
+### Pendent
+
+- Provar a Windows amb l'iPhone: obrir un vídeo del telèfon al visor → es baixa i es reprodueix; navegar entre vídeos; verificar rotació.
