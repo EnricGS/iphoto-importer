@@ -137,14 +137,23 @@ final class PhotoItem: Identifiable, Hashable {
     /// Convenience init for device items.
     init(cameraFile: ICCameraFile, deviceId: String) {
         let name = cameraFile.name ?? "unknown"
-        // Use parent folder path to ensure unique ID for files with same name in different folders
         let folder = cameraFile.parentFolder?.name ?? ""
-        let path = "device://\(deviceId)/\(folder)/\(name)"
+        // Unicitat de l'id: a l'iPhone (MTP) hi pot haver fitxers DIFERENTS amb el
+        // MATEIX nom — el comptador IMG_#### es reinicia (després de IMG_9999),
+        // hi ha fotos importades d'altres fonts, o l'estructura es presenta plana
+        // (mateix `parentFolder.name`). Si l'id col·lisiona, com que `==`/`hash`
+        // es basen en `id`, dues fotos passen per "la mateixa": `firstIndex(of:)`
+        // retorna l'altra i SwiftUI (Identifiable per id) reusa la cel·la → al
+        // visor surt una i la canvia per l'altra. Afegim mida + data de creació
+        // (continguts diferents → mides/dates diferents) perquè l'id sigui únic.
+        let size = cameraFile.fileSize
+        let ts = Int((cameraFile.creationDate ?? .distantPast).timeIntervalSince1970)
+        let path = "device://\(deviceId)/\(folder)/\(name)#\(size)-\(ts)"
         self.id = path
         self.fullPath = path
         self.fileName = name
         self.dateTaken = cameraFile.creationDate
-        self.sizeBytes = cameraFile.fileSize
+        self.sizeBytes = size
         self.isLocal = false
         self.cameraFile = cameraFile
     }

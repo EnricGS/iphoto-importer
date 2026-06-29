@@ -1996,7 +1996,14 @@ final class MainViewModel {
                     for j in (i+1)..<withHash.count {
                         guard let hashB = withHash[j].perceptualHash else { continue }
                         if FileService.hammingDistance(hashA, hashB) == 0 {
-                            let groupId = "md5-size\(withHash[i].sizeBytes)"
+                            // El groupId ha d'identificar el CLÚSTER real, no només la
+                            // mida: si només fos la mida, dos parells de duplicats
+                            // DIFERENTS amb la mateixa mida es fusionaven en un sol grup
+                            // i la propagació de miniatures clavava la imatge del donant
+                            // a fotos que no eren la seva. Incloem el hash perceptual
+                            // (distància 0 → hashA == hashB) perquè el grup sigui el
+                            // conjunt de fotos realment idèntiques.
+                            let groupId = "md5-\(withHash[i].sizeBytes)-\(String(format: "%016x", hashA))"
                             await MainActor.run {
                                 withHash[i].duplicateGroupId = groupId
                                 withHash[j].duplicateGroupId = groupId
