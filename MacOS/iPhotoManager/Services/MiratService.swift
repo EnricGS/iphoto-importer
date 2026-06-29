@@ -153,7 +153,10 @@ final class MiratService {
         // Vídeos: pujada PRESIGNADA directa a MinIO (init → PUT → complete), evitant
         // que el fitxer passi pel pod web. Així no peta el requestTimeout de Node
         // (300s) amb vídeos grans → adéu als 502. Les fotos segueixen pel multipart.
-        if mime.hasPrefix("video/") {
+        // Decidim per la llista AUTORITATIVA d'extensions de vídeo (no pel mime):
+        // així cap vídeo (.mts/.m2ts/.ts/.3gp inclosos) s'escapa al camí vell.
+        let ext = fileURL.pathExtension.lowercased()
+        if PhotoItem.videoExtensions.contains(ext) {
             return await uploadVideoPresigned(
                 fileURL: fileURL, mime: mime,
                 thumbBytes: thumbBytes, previewBytes: previewBytes, meta: meta)
@@ -568,6 +571,8 @@ final class MiratService {
         case "avi": return "video/x-msvideo"
         case "mkv": return "video/x-matroska"
         case "webm": return "video/webm"
+        case "3gp": return "video/3gpp"
+        case "mts", "m2ts", "ts": return "video/mp2t"
         default: return "application/octet-stream"
         }
     }
