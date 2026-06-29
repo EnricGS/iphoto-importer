@@ -262,9 +262,12 @@ final class MiratService {
         return .fail("Esgotats els reintents")
     }
 
-    /// Puja un VÍDEO amb el flux presignat: demana URLs a /upload-init, puja el
-    /// fitxer (i thumb/preview) DIRECTAMENT a MinIO, i registra amb /upload-complete.
-    /// Evita fer passar el vídeo pel pod web (requestTimeout de Node → 502 amb grans).
+    /// Puja un VÍDEO amb pujada MULTIPART presignada: demana URLs a
+    /// /upload-init-multipart, puja el fitxer per PARTS directament a MinIO (cada part
+    /// és un PUT presignat independent i reintentable), puja thumb/preview, i registra
+    /// amb /upload-complete-multipart. Evita que el fitxer passi pel pod (502 del
+    /// requestTimeout de Node) i que cap petició depengui d'un timeout; un error
+    /// transitori (p.ex. 503 SlowDown del NAS) només costa tornar a pujar UNA part.
     private func uploadVideoPresigned(
         fileURL: URL, mime: String,
         thumbBytes: Data, previewBytes: Data, meta: [String: Any]
@@ -273,9 +276,20 @@ final class MiratService {
         let hasThumb = !thumbBytes.isEmpty
         let hasPreview = !previewBytes.isEmpty
 
-        // 1. init — dedup + URLs presignades
+        // Mida del fitxer (el servidor en calcula el nombre de parts).
+        let mida: Int
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            mida = (attrs[.size] as? Int) ?? 0
+        } catch {
+            return .fail("No s'ha pogut llegir la mida del fitxer")
+        }
+        guard mida > 0 else { return .fail("El fitxer és buit") }
+
+        // 1. init-multipart — dedup + uploadId + URL presignada de cada part
         var initBody: [String: Any] = [
             "mime_type": mime,
+            "mida": mida,
             "has_thumbnail": hasThumb,
             "has_preview": hasPreview,
             "grup_id": destination.grupId,
@@ -284,9 +298,9 @@ final class MiratService {
 
         let initResp: [String: Any]
         do {
-            initResp = try await postJSON(path: "api/external/upload-init", body: initBody)
+            initResp = try await postJSON(path: "api/external/upload-init-multipart", body: initBody)
         } catch {
-            uploadLog.error("init presignat fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            uploadLog.error("init-multipart fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return .fail("Error iniciant la pujada: \(error.localizedDescription)")
         }
 
@@ -294,17 +308,40 @@ final class MiratService {
             return .ok(id: id, duplicat: true)
         }
         guard let fotoId = initResp["fotoId"] as? String,
-              let fotoUrlStr = initResp["foto_url"] as? String,
-              let fotoUrl = URL(string: fotoUrlStr) else {
+              let uploadId = initResp["uploadId"] as? String,
+              let partSize = initResp["partSize"] as? Int, partSize > 0,
+              let partsRaw = initResp["parts"] as? [[String: Any]], !partsRaw.isEmpty else {
             return .fail("Resposta d'init inesperada")
         }
 
-        // 2. PUT directe a MinIO (vídeo + thumb + preview)
-        let mida: Int
+        // 2. PUT de cada PART (seqüencial: una escriptura gran alhora) llegint el tros
+        // corresponent del fitxer; captura l'ETag de cada part per al complete.
+        var etags: [[String: Any]] = []
         do {
-            let fotoData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-            mida = fotoData.count
-            try await putToPresigned(url: fotoUrl, data: fotoData, contentType: mime)
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            for part in partsRaw {
+                guard let partNumber = part["partNumber"] as? Int,
+                      let urlStr = part["url"] as? String, let url = URL(string: urlStr) else {
+                    throw MiratError.httpError(status: 0, body: "Part invàlida a la resposta")
+                }
+                try handle.seek(toOffset: UInt64((partNumber - 1) * partSize))
+                let chunk = try handle.read(upToCount: partSize) ?? Data()
+                let http = try await putWithRetry(
+                    url: url, data: chunk, contentType: nil,
+                    label: "part \(partNumber)/\(partsRaw.count)")
+                guard let etag = http.value(forHTTPHeaderField: "Etag"), !etag.isEmpty else {
+                    throw MiratError.httpError(status: 0, body: "Part \(partNumber) sense ETag")
+                }
+                etags.append(["partNumber": partNumber, "etag": etag])
+            }
+        } catch {
+            uploadLog.error("PUT de parts fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return .fail("Error pujant a l'emmagatzematge: \(error.localizedDescription)")
+        }
+
+        // 2b. thumb + preview (PUT simple presignat)
+        do {
             if hasThumb, let s = initResp["thumb_url"] as? String, let u = URL(string: s) {
                 try await putToPresigned(url: u, data: thumbBytes, contentType: "image/jpeg")
             }
@@ -312,13 +349,15 @@ final class MiratService {
                 try await putToPresigned(url: u, data: previewBytes, contentType: "image/jpeg")
             }
         } catch {
-            uploadLog.error("PUT presignat fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return .fail("Error pujant a l'emmagatzematge: \(error.localizedDescription)")
+            uploadLog.error("PUT thumb/preview fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return .fail("Error pujant la miniatura: \(error.localizedDescription)")
         }
 
-        // 3. complete — registra la foto (insert + àlbum + pipeline)
+        // 3. complete-multipart — tanca el multipart (amb els ETags) i registra la foto
         var completeBody: [String: Any] = [
             "fotoId": fotoId,
+            "uploadId": uploadId,
+            "parts": etags,
             "mime_type": mime,
             "mida": mida,
             "metadades": meta,
@@ -331,11 +370,11 @@ final class MiratService {
         }
 
         do {
-            let resp = try await postJSON(path: "api/external/upload-complete", body: completeBody)
+            let resp = try await postJSON(path: "api/external/upload-complete-multipart", body: completeBody)
             guard let id = resp["id"] as? String else { return .fail("Resposta de complete inesperada") }
             return .ok(id: id, duplicat: false)
         } catch {
-            uploadLog.error("complete presignat fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            uploadLog.error("complete-multipart fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return .fail("Error registrant la foto: \(error.localizedDescription)")
         }
     }
@@ -357,41 +396,49 @@ final class MiratService {
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
-    /// PUT de dades a una URL presignada (auto-autenticada; cap capçalera d'auth nostra),
-    /// amb REINTENTS i backoff exponencial + jitter per a errors transitoris
-    /// (5xx/429/xarxa). Cas típic: MinIO retorna 503 SlowDown quan es pugen diversos
-    /// vídeos grans alhora (disc únic al NAS) — reintentant, el sistema s'autoregula.
-    /// Els 4xx (error permanent) fallen immediatament. Llança si s'esgoten els intents.
-    private func putToPresigned(url: URL, data: Data, contentType: String) async throws {
+    /// PUT a una URL presignada amb REINTENTS i backoff exponencial + jitter per a
+    /// errors transitoris (5xx/429/xarxa). Cas típic: MinIO retorna 503 SlowDown.
+    /// Els 4xx (error permanent) fallen immediatament. Retorna la resposta HTTP (per
+    /// llegir l'ETag a les parts del multipart). `contentType` nil → no s'envia
+    /// Content-Type (les parts d'UploadPart no la porten signada).
+    private func putWithRetry(url: URL, data: Data, contentType: String?, label: String) async throws -> HTTPURLResponse {
         let maxAttempts = 5
         for attempt in 1...maxAttempts {
             var req = URLRequest(url: url)
             req.httpMethod = "PUT"
-            req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+            if let contentType { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             do {
                 let (respData, resp) = try await session.upload(for: req, from: data)
-                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                if (200...299).contains(status) {
-                    if attempt > 1 { uploadLog.notice("PUT presignat recuperat al retry #\(attempt)") }
-                    return
+                guard let http = resp as? HTTPURLResponse else {
+                    throw MiratError.httpError(status: 0, body: "Sense resposta HTTP")
+                }
+                if (200...299).contains(http.statusCode) {
+                    if attempt > 1 { uploadLog.notice("PUT \(label, privacy: .public) recuperat al retry #\(attempt)") }
+                    return http
                 }
                 let bodyText = String(data: respData, encoding: .utf8) ?? ""
-                let isRetriable = status == 0 || status >= 500 || status == 429
-                uploadLog.error("PUT presignat HTTP \(status) intent \(attempt)/\(maxAttempts): \(bodyText.prefix(200), privacy: .public)")
+                let isRetriable = http.statusCode >= 500 || http.statusCode == 429
+                uploadLog.error("PUT \(label, privacy: .public) HTTP \(http.statusCode) intent \(attempt)/\(maxAttempts): \(bodyText.prefix(200), privacy: .public)")
                 if !isRetriable || attempt == maxAttempts {
-                    throw MiratError.httpError(status: status, body: bodyText)
+                    throw MiratError.httpError(status: http.statusCode, body: bodyText)
                 }
             } catch let err as MiratError {
                 throw err   // error HTTP permanent o últim intent → propaga
             } catch {
                 // error de xarxa → transitori
-                uploadLog.error("PUT presignat xarxa intent \(attempt)/\(maxAttempts): \(error.localizedDescription, privacy: .public)")
+                uploadLog.error("PUT \(label, privacy: .public) xarxa intent \(attempt)/\(maxAttempts): \(error.localizedDescription, privacy: .public)")
                 if attempt == maxAttempts { throw error }
             }
             // backoff exponencial amb jitter abans del següent intent: ~1s, 2s, 4s, 8s (+0–500ms)
             let base = UInt64(1_000_000_000) << (attempt - 1)
             try? await Task.sleep(nanoseconds: base + UInt64.random(in: 0...500_000_000))
         }
+        throw MiratError.httpError(status: 0, body: "Esgotats els intents de PUT (\(label))")
+    }
+
+    /// PUT simple presignat (thumb/preview): reusa `putWithRetry` i ignora la resposta.
+    private func putToPresigned(url: URL, data: Data, contentType: String) async throws {
+        _ = try await putWithRetry(url: url, data: data, contentType: contentType, label: "fitxer")
     }
 
     private func get(path: String) async throws -> (Data, URLResponse) {
