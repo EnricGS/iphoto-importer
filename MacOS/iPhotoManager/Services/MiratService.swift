@@ -357,14 +357,41 @@ final class MiratService {
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
-    /// PUT de dades a una URL presignada (auto-autenticada; cap capçalera d'auth nostra).
-    /// Llança si no és 2xx.
+    /// PUT de dades a una URL presignada (auto-autenticada; cap capçalera d'auth nostra),
+    /// amb REINTENTS i backoff exponencial + jitter per a errors transitoris
+    /// (5xx/429/xarxa). Cas típic: MinIO retorna 503 SlowDown quan es pugen diversos
+    /// vídeos grans alhora (disc únic al NAS) — reintentant, el sistema s'autoregula.
+    /// Els 4xx (error permanent) fallen immediatament. Llança si s'esgoten els intents.
     private func putToPresigned(url: URL, data: Data, contentType: String) async throws {
-        var req = URLRequest(url: url)
-        req.httpMethod = "PUT"
-        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        let (respData, resp) = try await session.upload(for: req, from: data)
-        try Self.ensureOk(data: respData, resp: resp)
+        let maxAttempts = 5
+        for attempt in 1...maxAttempts {
+            var req = URLRequest(url: url)
+            req.httpMethod = "PUT"
+            req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+            do {
+                let (respData, resp) = try await session.upload(for: req, from: data)
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if (200...299).contains(status) {
+                    if attempt > 1 { uploadLog.notice("PUT presignat recuperat al retry #\(attempt)") }
+                    return
+                }
+                let bodyText = String(data: respData, encoding: .utf8) ?? ""
+                let isRetriable = status == 0 || status >= 500 || status == 429
+                uploadLog.error("PUT presignat HTTP \(status) intent \(attempt)/\(maxAttempts): \(bodyText.prefix(200), privacy: .public)")
+                if !isRetriable || attempt == maxAttempts {
+                    throw MiratError.httpError(status: status, body: bodyText)
+                }
+            } catch let err as MiratError {
+                throw err   // error HTTP permanent o últim intent → propaga
+            } catch {
+                // error de xarxa → transitori
+                uploadLog.error("PUT presignat xarxa intent \(attempt)/\(maxAttempts): \(error.localizedDescription, privacy: .public)")
+                if attempt == maxAttempts { throw error }
+            }
+            // backoff exponencial amb jitter abans del següent intent: ~1s, 2s, 4s, 8s (+0–500ms)
+            let base = UInt64(1_000_000_000) << (attempt - 1)
+            try? await Task.sleep(nanoseconds: base + UInt64.random(in: 0...500_000_000))
+        }
     }
 
     private func get(path: String) async throws -> (Data, URLResponse) {

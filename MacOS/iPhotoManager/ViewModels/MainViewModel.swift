@@ -352,43 +352,52 @@ final class MainViewModel {
         var errors = 0
         var lastError: String?
 
-        // TaskGroup amb concurrencia limitada a 3
-        await withTaskGroup(of: MiratUploadResult.self) { group in
-            var iterator = photos.makeIterator()
-            var inFlight = 0
-            let concurrency = 3
-
-            // Omplir els primers 3
-            while inFlight < concurrency, let photo = iterator.next() {
-                group.addTask { await svc.uploadPhoto(photo) }
-                inFlight += 1
-            }
-
-            while let result = await group.next() {
-                inFlight -= 1
-                if result.success {
-                    if result.duplicat { duplicats += 1 } else { uploaded += 1 }
-                } else {
-                    errors += 1
-                    lastError = result.errorMessage
-                }
-
-                let done = uploaded + duplicats + errors
-                miratUploadProgress = Double(done) / Double(total) * 100.0
-                var msg = "Pujant a Mirat (\(dest.displayLabel)): \(done)/\(total) "
-                    + "· \(uploaded) noves · \(duplicats) duplicades · \(errors) errors"
-                if let lastError {
-                    msg += " — Últim error: \(lastError)"
-                }
-                statusMessage = msg
-
-                // Llançar la següent si en queden
-                if let next = iterator.next() {
-                    group.addTask { await svc.uploadPhoto(next) }
+        // Pugem en dues tandes amb concurrència diferent (sliding window):
+        //  - IMATGES: concurrència 3 (petites, multipart pel pod → ràpid).
+        //  - VÍDEOS: concurrència 1 (serialitzats). Els vídeos van DIRECTES a MinIO
+        //    (presignat) i són grans; fer-ne diversos alhora satura el disc únic del
+        //    NAS i provoca 503 SlowDown. D'un en un, cada escriptura gran va sola.
+        //    (A més, el PUT presignat reintenta amb backoff per si de cas.)
+        func processarTanda(_ items: [PhotoItem], concurrency: Int) async {
+            guard !items.isEmpty else { return }
+            await withTaskGroup(of: MiratUploadResult.self) { group in
+                var iterator = items.makeIterator()
+                var inFlight = 0
+                while inFlight < concurrency, let photo = iterator.next() {
+                    group.addTask { await svc.uploadPhoto(photo) }
                     inFlight += 1
+                }
+                while let result = await group.next() {
+                    inFlight -= 1
+                    if result.success {
+                        if result.duplicat { duplicats += 1 } else { uploaded += 1 }
+                    } else {
+                        errors += 1
+                        lastError = result.errorMessage
+                    }
+
+                    let done = uploaded + duplicats + errors
+                    miratUploadProgress = Double(done) / Double(total) * 100.0
+                    var msg = "Pujant a Mirat (\(dest.displayLabel)): \(done)/\(total) "
+                        + "· \(uploaded) noves · \(duplicats) duplicades · \(errors) errors"
+                    if let lastError {
+                        msg += " — Últim error: \(lastError)"
+                    }
+                    statusMessage = msg
+
+                    if let next = iterator.next() {
+                        group.addTask { await svc.uploadPhoto(next) }
+                        inFlight += 1
+                    }
                 }
             }
         }
+
+        let esVideo: (PhotoItem) -> Bool = {
+            PhotoItem.videoExtensions.contains(URL(fileURLWithPath: $0.fullPath).pathExtension.lowercased())
+        }
+        await processarTanda(photos.filter { !esVideo($0) }, concurrency: 3)  // imatges, concurrents
+        await processarTanda(photos.filter(esVideo), concurrency: 1)          // vídeos, serialitzats
 
         isUploadingToMirat = false
         miratUploadProgress = 0
