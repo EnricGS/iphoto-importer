@@ -150,6 +150,15 @@ final class MiratService {
             metaJson = "{}"
         }
 
+        // Vídeos: pujada PRESIGNADA directa a MinIO (init → PUT → complete), evitant
+        // que el fitxer passi pel pod web. Així no peta el requestTimeout de Node
+        // (300s) amb vídeos grans → adéu als 502. Les fotos segueixen pel multipart.
+        if mime.hasPrefix("video/") {
+            return await uploadVideoPresigned(
+                fileURL: fileURL, mime: mime,
+                thumbBytes: thumbBytes, previewBytes: previewBytes, meta: meta)
+        }
+
         // 4. Multipart — boundary simple sense cometes (evitem el bug .NET del client Windows)
         let boundary = "mirat-\(UUID().uuidString)"
         var body = Data()
@@ -250,7 +259,110 @@ final class MiratService {
         return .fail("Esgotats els reintents")
     }
 
+    /// Puja un VÍDEO amb el flux presignat: demana URLs a /upload-init, puja el
+    /// fitxer (i thumb/preview) DIRECTAMENT a MinIO, i registra amb /upload-complete.
+    /// Evita fer passar el vídeo pel pod web (requestTimeout de Node → 502 amb grans).
+    private func uploadVideoPresigned(
+        fileURL: URL, mime: String,
+        thumbBytes: Data, previewBytes: Data, meta: [String: Any]
+    ) async -> MiratUploadResult {
+        let filename = fileURL.lastPathComponent
+        let hasThumb = !thumbBytes.isEmpty
+        let hasPreview = !previewBytes.isEmpty
+
+        // 1. init — dedup + URLs presignades
+        var initBody: [String: Any] = [
+            "mime_type": mime,
+            "has_thumbnail": hasThumb,
+            "has_preview": hasPreview,
+            "grup_id": destination.grupId,
+        ]
+        if let h = meta["hash_fitxer"] as? String { initBody["hash_fitxer"] = h }
+
+        let initResp: [String: Any]
+        do {
+            initResp = try await postJSON(path: "api/external/upload-init", body: initBody)
+        } catch {
+            uploadLog.error("init presignat fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return .fail("Error iniciant la pujada: \(error.localizedDescription)")
+        }
+
+        if (initResp["duplicat"] as? Bool) == true, let id = initResp["id"] as? String {
+            return .ok(id: id, duplicat: true)
+        }
+        guard let fotoId = initResp["fotoId"] as? String,
+              let fotoUrlStr = initResp["foto_url"] as? String,
+              let fotoUrl = URL(string: fotoUrlStr) else {
+            return .fail("Resposta d'init inesperada")
+        }
+
+        // 2. PUT directe a MinIO (vídeo + thumb + preview)
+        let mida: Int
+        do {
+            let fotoData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            mida = fotoData.count
+            try await putToPresigned(url: fotoUrl, data: fotoData, contentType: mime)
+            if hasThumb, let s = initResp["thumb_url"] as? String, let u = URL(string: s) {
+                try await putToPresigned(url: u, data: thumbBytes, contentType: "image/jpeg")
+            }
+            if hasPreview, let s = initResp["preview_url"] as? String, let u = URL(string: s) {
+                try await putToPresigned(url: u, data: previewBytes, contentType: "image/jpeg")
+            }
+        } catch {
+            uploadLog.error("PUT presignat fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return .fail("Error pujant a l'emmagatzematge: \(error.localizedDescription)")
+        }
+
+        // 3. complete — registra la foto (insert + àlbum + pipeline)
+        var completeBody: [String: Any] = [
+            "fotoId": fotoId,
+            "mime_type": mime,
+            "mida": mida,
+            "metadades": meta,
+            "has_thumbnail": hasThumb,
+            "has_preview": hasPreview,
+            "grup_id": destination.grupId,
+        ]
+        if let albumId = destination.albumId, !albumId.isEmpty {
+            completeBody["album_id"] = albumId
+        }
+
+        do {
+            let resp = try await postJSON(path: "api/external/upload-complete", body: completeBody)
+            guard let id = resp["id"] as? String else { return .fail("Resposta de complete inesperada") }
+            return .ok(id: id, duplicat: false)
+        } catch {
+            uploadLog.error("complete presignat fallit — \(filename, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return .fail("Error registrant la foto: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - HTTP helpers
+
+    /// POST amb body JSON + auth; retorna el JSON de resposta. Llança si no és 2xx.
+    private func postJSON(path: String, body: [String: Any]) async throws -> [String: Any] {
+        guard let url = Self.buildURL(base: destination.baseUrl, path: path) else {
+            throw MiratError.invalidURL
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        applyAuth(to: &req)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let (data, resp) = try await session.data(for: req)
+        try Self.ensureOk(data: data, resp: resp)
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    /// PUT de dades a una URL presignada (auto-autenticada; cap capçalera d'auth nostra).
+    /// Llança si no és 2xx.
+    private func putToPresigned(url: URL, data: Data, contentType: String) async throws {
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        let (respData, resp) = try await session.upload(for: req, from: data)
+        try Self.ensureOk(data: respData, resp: resp)
+    }
 
     private func get(path: String) async throws -> (Data, URLResponse) {
         guard let url = Self.buildURL(base: destination.baseUrl, path: path) else {
