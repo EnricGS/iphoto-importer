@@ -8,7 +8,8 @@ comparteix les mateixes funcions i necessita els mateixos canvis. Patró habitua
 repo: cada fix es fa a mac i a windows (commits `fix(mac)` / `fix(windows)`).
 
 ## Commits de referència (macOS, branca `main`)
-- `617f240` — pujada presignada de vídeos (init → PUT directe a MinIO → complete)
+- `4e4b42b` — **pujada MULTIPART S3 de vídeos** (parts de 16 MiB presignades + ETags) — **el referent actual** (substitueix el PUT únic de `617f240`)
+- `617f240` — pujada presignada PUT únic (versió anterior; el servidor encara la manté com a compat)
 - `77b8031` — MIME de vídeo per a `.mts/.m2ts/.ts/.3gp`
 - `313a0fa` — serialitzar vídeos (concurrència 1) + retry amb backoff al PUT
 - `f61d047` — id únic de fotos de dispositiu + dedup per mida+hash
@@ -17,20 +18,26 @@ repo: cada fix es fa a mac i a windows (commits `fix(mac)` / `fix(windows)`).
 
 ## Què cal portar a Windows
 
-### 1. Pujada presignada de vídeos  ⚠️ CRÍTIC (el 502 / 503)
-**Problema:** `Services/MiratService.cs` puja TOT per `api/external/upload` (multipart
-bufferitzat pel pod) — línia ~211. Amb vídeos grans → **502** (requestTimeout de Node) i,
-un cop esquivat, **503** (SlowDown del MinIO).
+### 1. Pujada MULTIPART de vídeos  ⚠️ CRÍTIC (el 502 / 503)
+**Problema:** `Services/MiratService.cs` puja TOT per `api/external/upload` (bufferitzat
+pel pod) — línia ~211. Amb vídeos grans → **502** (requestTimeout de Node) i **503**
+(SlowDown del MinIO). **El referent actual és MULTIPART** (no PUT únic): es trosseja el
+vídeo en parts de 16 MiB, cada part és un PUT presignat independent i reintentable.
 **Fix** (per a vídeos; `isVideo` ja es detecta a la línia 107) — replicar
-`MiratService.swift › uploadVideoPresigned`:
-1. `POST api/external/upload-init` (JSON `{ mime_type, hash_fitxer?, has_thumbnail, has_preview, grup_id }`)
-   → rep `{ fotoId, foto_url, thumb_url?, preview_url? }` o `{ id, duplicat:true }`.
-2. `PUT` del vídeo (+ thumb + preview) **directament** a aquestes URLs presignades
-   (només capçalera `Content-Type`, **sense** la nostra auth).
-3. `POST api/external/upload-complete` (JSON `{ fotoId, mime_type, mida, metadades,
-   has_thumbnail, has_preview, grup_id, album_id }`).
-   Les **FOTOS** segueixen pel multipart de sempre.
-Els dos endpoints ja són **vius a producció** (repo mirat).
+`MiratService.swift › uploadVideoPresigned` (multipart):
+1. `POST api/external/upload-init-multipart` (JSON `{ mime_type, mida, hash_fitxer?,
+   has_thumbnail, has_preview, grup_id }`) → `{ fotoId, uploadId, partSize, parts:[{partNumber,url}],
+   thumb_url?, preview_url? }` o `{ id, duplicat:true }`.
+2. Per a cada part: llegeix el tros `[(partNumber-1)*partSize, +partSize)` del fitxer i fes
+   `PUT` a `part.url` (**sense** Content-Type ni auth nostra); **captura l'ETag** de la
+   resposta (`Etag` header). Puja-les **seqüencialment** (una escriptura gran alhora).
+3. `PUT` de thumb/preview a `thumb_url`/`preview_url` (PUT simple, `image/jpeg`).
+4. `POST api/external/upload-complete-multipart` (JSON `{ fotoId, uploadId,
+   parts:[{partNumber,etag}], mime_type, mida, metadades, has_thumbnail, has_preview,
+   grup_id, album_id }`).
+   Les **FOTOS** segueixen pel multipart-form de sempre (`api/external/upload`).
+Tots els endpoints ja són **vius a producció**. (Existeixen també `upload-init`/`upload-complete`
+de PUT únic com a alternativa, però el referent és el multipart.)
 
 ### 2. MIME de vídeo per a totes les extensions
 - `Models/PhotoItem.cs › VideoExtensions` (línia ~41): té `.3gp/.mts/.m2ts` però **falta `.ts`** → afegir-lo.
