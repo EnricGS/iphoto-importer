@@ -1358,3 +1358,29 @@ Navegar entre vídeos del telèfon funciona: en obrir el següent, `ViewerVideoP
 ### Pendent
 
 - Provar a Windows amb l'iPhone: obrir un vídeo del telèfon al visor → es baixa i es reprodueix; navegar entre vídeos; verificar rotació.
+
+## 2026-07-02 — Windows: port — pujada MULTIPART presignada de vídeos (fix 502/503) + MIME + serialització
+
+Portat a la versió WPF el bloc de fixos de pujada a Mirat que ja eren a macOS (commits `4e4b42b` multipart, `77b8031` MIME, `313a0fa` serialitzar+retry). Build `dotnet build` net: 0 errors, 54 avisos NU190x preexistents. Guia: `PORT-WINDOWS.md`.
+
+**Problema**: a Windows TOTS els fitxers (també vídeos) pujaven per `api/external/upload`, bufferitzat pel pod → amb vídeos grans donava **502** (requestTimeout de Node) i **503** (SlowDown del MinIO de disc únic del NAS).
+
+**Fixos portats**:
+1. **Pujada MULTIPART presignada de vídeos** (`Services/MiratService.cs`): nou `UploadVideoPresignedAsync` que fa `upload-init-multipart` → PUT de cada part de 16 MiB **seqüencial** directament a MinIO capturant l'ETag → PUT de thumb/preview → `upload-complete-multipart`. Les fotos segueixen pel multipart-form de sempre. La decisió "és vídeo" es fa per la **llista autoritativa d'extensions** (`PhotoItem.VideoExtensions`), no pel MIME, perquè cap vídeo s'escapi al camí vell.
+2. **Retry amb backoff al PUT presignat**: `PutWithRetryAsync` (5 intents, backoff exponencial 1→8s + jitter; reintenta en 5xx/429/xarxa, falla immediat en 4xx). Excepció interna `MiratHttpException` per distingir un 4xx llançat expressament d'un error de xarxa (que a .NET també és `HttpRequestException`). Client HTTP a part `_presignedHttp` **sense auth ni BaseAddress** (timeout 30 min) per no enviar els nostres headers a MinIO.
+3. **MIME de vídeo** (`Services/MiratService.cs`, `Models/PhotoItem.cs`): afegit `.ts` a `VideoExtensions` i mapejat `.3gp → video/3gpp`, `.mts/.m2ts/.ts → video/mp2t` (abans queien a `application/octet-stream` i tornaven al multipart → 502).
+4. **Serialitzar vídeos** (`ViewModels/MainViewModel.cs`): `UploadPhotosToMiratAsync` ara puja en dues tandes — **fotos amb concurrència 3**, **vídeos d'un en un** (concurrència 1) — per no saturar el disc únic del NAS (503).
+
+**Verificat com a NO aplicable a Windows** (les altres dues notes del `PORT-WINDOWS.md`):
+- *Id únic de fotos de dispositiu* (nota #5): `device.EnumerateFiles` ja retorna el path MTP complet (`\DCIM\100APPLE\IMG_2390.JPG`), únic per fitxer → sense el bug de noms repetits.
+- *Dedup de dispositiu per mida+hash* (nota #6): el dedup de Windows usa comptador `md5-{n++}` (no `md5-size<mida>`) i no té camí de dedup específic de dispositiu → no fusiona clústers de la mateixa mida.
+
+### Fitxers tocats (Windows)
+
+- `Services/MiratService.cs` — `UploadVideoPresignedAsync`, `PostJsonAsync`, `PutWithRetryAsync`, `PutPresignedAsync`, `_presignedHttp`, excepció `MiratHttpException`, MIME de vídeo, decisió vídeo per extensió.
+- `Models/PhotoItem.cs` — `.ts` afegit a `VideoExtensions`.
+- `ViewModels/MainViewModel.cs` — `UploadPhotosToMiratAsync` amb tandes fotos(3)/vídeos(1).
+
+### Pendent
+
+- Provar a Windows amb l'iPhone / vídeos grans reals: que un vídeo pugi per multipart (init → parts → complete) sense 502/503, i que les extensions `.mts/.m2ts/.ts/.3gp` agafin el camí presignat.

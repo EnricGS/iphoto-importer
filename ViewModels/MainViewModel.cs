@@ -374,45 +374,56 @@ public partial class MainViewModel : ObservableObject
         var uploaded = 0;
         var duplicats = 0;
         var errors = 0;
-        using var gate = new SemaphoreSlim(3); // 3 uploads concurrents
 
-        var tasks = photos.Select(async photo =>
+        // Pugem en dues tandes amb concurrència diferent:
+        //  - FOTOS: concurrència 3 (petites, van pel pod via multipart → ràpid).
+        //  - VÍDEOS: concurrència 1 (serialitzats). Van DIRECTES a MinIO (presignat) i són
+        //    grans; fer-ne diversos alhora satura el disc únic del NAS → 503 SlowDown.
+        //    D'un en un, cada escriptura gran va sola (el PUT presignat ja reintenta).
+        async Task ProcessBatchAsync(List<PhotoItem> batch, int concurrency)
         {
-            await gate.WaitAsync(ct);
-            try
+            if (batch.Count == 0) return;
+            using var gate = new SemaphoreSlim(concurrency);
+            var tasks = batch.Select(async photo =>
             {
-                var result = await svc.UploadPhotoAsync(photo, progress: null, ct);
-                if (!ct.IsCancellationRequested)
+                await gate.WaitAsync(ct);
+                try
                 {
-                    if (result.Success)
+                    var result = await svc.UploadPhotoAsync(photo, progress: null, ct);
+                    if (!ct.IsCancellationRequested)
                     {
-                        if (result.Duplicat) Interlocked.Increment(ref duplicats);
-                        else Interlocked.Increment(ref uploaded);
+                        if (result.Success)
+                        {
+                            if (result.Duplicat) Interlocked.Increment(ref duplicats);
+                            else Interlocked.Increment(ref uploaded);
+                        }
+                        else
+                        {
+                            Interlocked.Increment(ref errors);
+                            System.Diagnostics.Debug.WriteLine($"[Mirat] Error pujant {photo.FileName}: {result.ErrorMessage}");
+                        }
+                        // Update UI en el thread UI
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            var done = uploaded + duplicats + errors;
+                            MiratUploadProgress = (double)done / total * 100.0;
+                            StatusMessage = $"Pujant a Mirat ({dest.DisplayLabel}): {done}/{total} " +
+                                            $"· {uploaded} noves · {duplicats} duplicades · {errors} errors";
+                        });
                     }
-                    else
-                    {
-                        Interlocked.Increment(ref errors);
-                        System.Diagnostics.Debug.WriteLine($"[Mirat] Error pujant {photo.FileName}: {result.ErrorMessage}");
-                    }
-                    // Update UI en el thread UI
-                    await Application.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        var done = uploaded + duplicats + errors;
-                        MiratUploadProgress = (double)done / total * 100.0;
-                        StatusMessage = $"Pujant a Mirat ({dest.DisplayLabel}): {done}/{total} " +
-                                        $"· {uploaded} noves · {duplicats} duplicades · {errors} errors";
-                    });
                 }
-            }
-            finally
-            {
-                gate.Release();
-            }
-        }).ToArray();
+                finally
+                {
+                    gate.Release();
+                }
+            }).ToArray();
+            await Task.WhenAll(tasks);
+        }
 
         try
         {
-            await Task.WhenAll(tasks);
+            await ProcessBatchAsync(photos.Where(p => !p.IsVideo).ToList(), 3); // fotos, concurrents
+            await ProcessBatchAsync(photos.Where(p => p.IsVideo).ToList(), 1);  // vídeos, serialitzats
         }
         catch (OperationCanceledException) { /* cancel·lació neta */ }
 

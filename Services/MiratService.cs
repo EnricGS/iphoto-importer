@@ -25,6 +25,11 @@ namespace iPhotoImporter.Services;
 public class MiratService : IDisposable
 {
     private readonly HttpClient _http;
+    // Client SENSE auth ni BaseAddress per als PUT a URLs presignades de MinIO. No pot
+    // dur els nostres headers (Bearer/X-API-Key): la petició ja va signada a la URL i
+    // MinIO rebutjaria capçaleres d'auth alienes. Timeout ample per a parts grans
+    // (Traefik readTimeout del servidor és 1800s).
+    private readonly HttpClient _presignedHttp;
     private readonly MiratDestination _dest;
     private readonly ThumbnailCacheService? _thumbCache;
     private static readonly JsonSerializerOptions _jsonOptions = new()
@@ -54,6 +59,8 @@ public class MiratService : IDisposable
         {
             _http.DefaultRequestHeaders.Add("X-API-Key", dest.ApiKey);
         }
+
+        _presignedHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
     }
 
     /// <summary>Comprova que BaseUrl + ApiKey funcionen (fa GET /api/external/grups).</summary>
@@ -104,7 +111,10 @@ public class MiratService : IDisposable
 
         // 2. Generar thumbnail 200px JPEG i preview 2048px JPEG
         progress?.Report(0.20);
-        var isVideo = mime.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+        // Decidim vídeo per la llista AUTORITATIVA d'extensions (no pel MIME): així cap
+        // vídeo (.mts/.m2ts/.ts/.3gp inclosos) s'escapa al camí presignat i acaba pujant
+        // pel pod (→ 502/503 amb fitxers grans).
+        var isVideo = PhotoItem.VideoExtensions.Contains(Path.GetExtension(photo.FullPath));
         byte[] thumbBytes;
         byte[] previewBytes;
         int width = 0;
@@ -150,6 +160,12 @@ public class MiratService : IDisposable
         }
         if (!string.IsNullOrEmpty(photo.Location))
             meta["nom_lloc"] = photo.Location;
+
+        // Vídeos: pujada MULTIPART presignada directa a MinIO (init → PUT de parts →
+        // complete), evitant que el fitxer passi pel pod web (requestTimeout de Node →
+        // 502) i sense dependre d'un sol timeout. Les fotos segueixen pel multipart-form.
+        if (isVideo)
+            return await UploadVideoPresignedAsync(photo, mime, thumbBytes, previewBytes, meta, progress, ct);
 
         // 4. Multipart
         progress?.Report(0.35);
@@ -231,6 +247,206 @@ public class MiratService : IDisposable
         {
             fotoStream.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Puja un VÍDEO amb pujada MULTIPART presignada: demana URLs a
+    /// /upload-init-multipart, puja el fitxer per PARTS directament a MinIO (cada part és
+    /// un PUT presignat independent i reintentable), puja thumb/preview, i registra amb
+    /// /upload-complete-multipart. Evita que el fitxer passi pel pod (502 del
+    /// requestTimeout de Node); un error transitori (p.ex. 503 SlowDown del NAS) només
+    /// costa tornar a pujar UNA part.
+    /// </summary>
+    private async Task<MiratUploadResult> UploadVideoPresignedAsync(
+        PhotoItem photo, string mime, byte[] thumbBytes, byte[] previewBytes,
+        Dictionary<string, object?> meta, IProgress<double>? progress, CancellationToken ct)
+    {
+        var hasThumb = thumbBytes.Length > 0;
+        var hasPreview = previewBytes.Length > 0;
+
+        long mida;
+        try { mida = new FileInfo(photo.FullPath).Length; }
+        catch { return MiratUploadResult.Fail("No s'ha pogut llegir la mida del fitxer"); }
+        if (mida <= 0) return MiratUploadResult.Fail("El fitxer és buit");
+
+        // 1. init-multipart — dedup + uploadId + URL presignada de cada part
+        var initBody = new Dictionary<string, object?>
+        {
+            ["mime_type"] = mime,
+            ["mida"] = mida,
+            ["has_thumbnail"] = hasThumb,
+            ["has_preview"] = hasPreview,
+            ["grup_id"] = _dest.GrupId,
+        };
+        if (meta.TryGetValue("hash_fitxer", out var h) && h is string hs)
+            initBody["hash_fitxer"] = hs;
+
+        JsonDocument initDoc;
+        try
+        {
+            initDoc = await PostJsonAsync("api/external/upload-init-multipart", initBody, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) { return MiratUploadResult.Fail($"Error iniciant la pujada: {ex.Message}"); }
+
+        using (initDoc)
+        {
+            var init = initDoc.RootElement;
+
+            // Duplicat detectat pel servidor abans de pujar cap byte
+            if (init.TryGetProperty("duplicat", out var dup) && dup.ValueKind == JsonValueKind.True
+                && init.TryGetProperty("id", out var dupId))
+                return MiratUploadResult.Ok(dupId.GetString() ?? "", duplicat: true);
+
+            if (!init.TryGetProperty("fotoId", out var fotoIdEl) ||
+                !init.TryGetProperty("uploadId", out var uploadIdEl) ||
+                !init.TryGetProperty("partSize", out var partSizeEl) ||
+                !init.TryGetProperty("parts", out var partsEl) || partsEl.ValueKind != JsonValueKind.Array)
+                return MiratUploadResult.Fail("Resposta d'init inesperada");
+
+            var fotoId = fotoIdEl.GetString() ?? "";
+            var uploadId = uploadIdEl.GetString() ?? "";
+            var partSize = partSizeEl.GetInt64();
+            var parts = partsEl.EnumerateArray().ToList();
+            if (partSize <= 0 || parts.Count == 0)
+                return MiratUploadResult.Fail("Resposta d'init inesperada");
+
+            // 2. PUT de cada PART (seqüencial: una escriptura gran alhora) llegint el tros
+            //    corresponent del fitxer; captura l'ETag de cada part per al complete.
+            var etags = new List<Dictionary<string, object>>();
+            try
+            {
+                using var fs = new FileStream(photo.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                for (var i = 0; i < parts.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var partNumber = parts[i].GetProperty("partNumber").GetInt32();
+                    var url = parts[i].GetProperty("url").GetString();
+                    if (string.IsNullOrEmpty(url))
+                        return MiratUploadResult.Fail("Part invàlida a la resposta");
+
+                    var offset = (partNumber - 1) * partSize;
+                    var toRead = (int)Math.Min(partSize, mida - offset);
+                    var chunk = new byte[toRead];
+                    fs.Seek(offset, SeekOrigin.Begin);
+                    await fs.ReadExactlyAsync(chunk, 0, toRead, ct);
+
+                    // Les parts d'UploadPart NO van signades amb Content-Type → no l'enviem.
+                    using var resp = await PutWithRetryAsync(url, chunk, contentType: null, ct,
+                        $"part {partNumber}/{parts.Count}");
+                    var etag = resp.Headers.TryGetValues("ETag", out var vals) ? vals.FirstOrDefault() : null;
+                    if (string.IsNullOrEmpty(etag))
+                        return MiratUploadResult.Fail($"Part {partNumber} sense ETag");
+                    etags.Add(new Dictionary<string, object> { ["partNumber"] = partNumber, ["etag"] = etag });
+
+                    progress?.Report(0.35 + 0.5 * (i + 1) / parts.Count);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { return MiratUploadResult.Fail($"Error pujant a l'emmagatzematge: {ex.Message}"); }
+
+            // 2b. thumb + preview (PUT simple presignat)
+            try
+            {
+                if (hasThumb && init.TryGetProperty("thumb_url", out var tu) && tu.ValueKind == JsonValueKind.String)
+                    await PutPresignedAsync(tu.GetString()!, thumbBytes, "image/jpeg", ct);
+                if (hasPreview && init.TryGetProperty("preview_url", out var pu) && pu.ValueKind == JsonValueKind.String)
+                    await PutPresignedAsync(pu.GetString()!, previewBytes, "image/jpeg", ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { return MiratUploadResult.Fail($"Error pujant la miniatura: {ex.Message}"); }
+
+            // 3. complete-multipart — tanca el multipart (amb els ETags) i registra la foto
+            var completeBody = new Dictionary<string, object?>
+            {
+                ["fotoId"] = fotoId,
+                ["uploadId"] = uploadId,
+                ["parts"] = etags,
+                ["mime_type"] = mime,
+                ["mida"] = mida,
+                ["metadades"] = meta,
+                ["has_thumbnail"] = hasThumb,
+                ["has_preview"] = hasPreview,
+                ["grup_id"] = _dest.GrupId,
+            };
+            if (!string.IsNullOrEmpty(_dest.AlbumId))
+                completeBody["album_id"] = _dest.AlbumId;
+
+            try
+            {
+                using var completeDoc = await PostJsonAsync("api/external/upload-complete-multipart", completeBody, ct);
+                if (!completeDoc.RootElement.TryGetProperty("id", out var idEl))
+                    return MiratUploadResult.Fail("Resposta de complete inesperada");
+                progress?.Report(1.0);
+                return MiratUploadResult.Ok(idEl.GetString() ?? "", duplicat: false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { return MiratUploadResult.Fail($"Error registrant la foto: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// POST amb body JSON + auth; retorna el JsonDocument de resposta (el crida el
+    /// disposa). Llança si no és 2xx.
+    /// </summary>
+    private async Task<JsonDocument> PostJsonAsync(string path, object body, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(body, _jsonOptions);
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        var resp = await _http.PostAsync(path, content, ct);
+        var respBody = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new MiratHttpException($"HTTP {(int)resp.StatusCode}: {respBody}");
+        return JsonDocument.Parse(respBody);
+    }
+
+    /// <summary>
+    /// PUT a una URL presignada amb REINTENTS i backoff exponencial + jitter per a errors
+    /// transitoris (5xx/429/xarxa). Cas típic: MinIO retorna 503 SlowDown. Els 4xx (error
+    /// permanent) fallen immediatament. Retorna la resposta HTTP (per llegir l'ETag de les
+    /// parts). <paramref name="contentType"/> null → no s'envia Content-Type (les parts
+    /// d'UploadPart no la porten signada). Cada intent reconstrueix el contingut: un
+    /// HttpContent només es pot enviar un cop.
+    /// </summary>
+    private async Task<HttpResponseMessage> PutWithRetryAsync(
+        string url, byte[] data, string? contentType, CancellationToken ct, string label)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                var content = new ByteArrayContent(data);
+                if (contentType != null)
+                    content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+                var resp = await _presignedHttp.PutAsync(url, content, ct);
+                if (resp.IsSuccessStatusCode)
+                    return resp;
+
+                var status = (int)resp.StatusCode;
+                var respBody = await resp.Content.ReadAsStringAsync(ct);
+                resp.Dispose();
+                var retriable = status >= 500 || status == 429;
+                if (!retriable || attempt == maxAttempts)
+                    throw new MiratHttpException($"PUT {label} HTTP {status}: {respBody}");
+                // retriable → cau al backoff
+            }
+            catch (MiratHttpException) { throw; }                          // 4xx permanent o últim intent
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }  // cancel·lació d'usuari
+            catch (Exception) when (attempt == maxAttempts) { throw; }     // xarxa/timeout a l'últim intent
+            catch (Exception) { /* xarxa/timeout transitori → retry */ }
+
+            // backoff exponencial amb jitter: ~1s, 2s, 4s, 8s (+0–500ms)
+            var delayMs = (1000 << (attempt - 1)) + Random.Shared.Next(0, 500);
+            await Task.Delay(delayMs, ct);
+        }
+        throw new MiratHttpException($"Esgotats els intents de PUT ({label})");
+    }
+
+    /// <summary>PUT simple presignat (thumb/preview): reusa PutWithRetryAsync i descarta la resposta.</summary>
+    private async Task PutPresignedAsync(string url, byte[] data, string contentType, CancellationToken ct)
+    {
+        (await PutWithRetryAsync(url, data, contentType, ct, "fitxer")).Dispose();
     }
 
     // ---- helpers ----
@@ -361,6 +577,8 @@ public class MiratService : IDisposable
             ".avi" => "video/x-msvideo",
             ".mkv" => "video/x-matroska",
             ".webm" => "video/webm",
+            ".3gp" => "video/3gpp",
+            ".mts" or ".m2ts" or ".ts" => "video/mp2t",
             _ => "application/octet-stream",
         };
     }
@@ -368,8 +586,19 @@ public class MiratService : IDisposable
     public void Dispose()
     {
         _http.Dispose();
+        _presignedHttp.Dispose();
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>
+/// Error HTTP permanent (no reintentable) durant la pujada. Ens permet distingir, al
+/// retry del PUT, un 4xx que hem llançat expressament d'un error de xarxa (que a .NET
+/// també és HttpRequestException) i que sí volem reintentar.
+/// </summary>
+internal sealed class MiratHttpException : Exception
+{
+    public MiratHttpException(string message) : base(message) { }
 }
 
 // ---- DTOs ----

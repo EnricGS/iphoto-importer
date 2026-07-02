@@ -38,7 +38,7 @@ public class PhotoItem : INotifyPropertyChanged
     /// <summary>Extensions de vídeo</summary>
     public static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".3gp", ".mts", ".m2ts"
+        ".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".3gp", ".mts", ".m2ts", ".ts"
     };
 
     /// <summary>Totes les extensions suportades</summary>
