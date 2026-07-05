@@ -1,6 +1,19 @@
-# Posar al dia la versió Windows (WPF) — pendent de portar des de macOS
+# Posar al dia la versió Windows (WPF) — ✅ COMPLETAT
 
-**Data:** 2026-06-29
+**Data:** 2026-06-29 · **Portat el 2026-07-02** (commit `3560de9`, detall al `project_log.md`)
+
+| # | Ítem | Estat |
+|---|------|-------|
+| 1 | Pujada MULTIPART presignada de vídeos | ✅ `UploadVideoPresignedAsync` (init-multipart → parts 16 MiB + ETag → complete) |
+| 2 | MIME `.mts/.m2ts/.ts/.3gp` | ✅ + `.ts` a `VideoExtensions`; decisió vídeo per extensió |
+| 3 | Serialitzar vídeos (conc. 1) | ✅ tandes fotos(3)/vídeos(1) a `UploadPhotosToMiratAsync` |
+| 4 | Retry amb backoff al PUT | ✅ `PutWithRetryAsync` (5 intents, 1→8s + jitter) |
+| 5 | Id únic de dispositiu | ✅ verificat NO aplicable (path MTP complet ja és únic) |
+| 6 | Dedup per mida+hash | ✅ verificat NO aplicable (dedup WPF usa comptador, no mida) |
+
+Queda només la **prova real a Windows** amb vídeos grans. La resta del document es conserva com a referència del disseny.
+
+---
 
 Aquesta sessió s'han arreglat al client **macOS** (`MacOS/iPhotoManager`) diversos bugs de
 **pujada a Mirat** i del **visor**. L'app **Windows** (WPF .NET 8, a l'arrel del repo)
