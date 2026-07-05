@@ -1,5 +1,35 @@
 # iPhotoManager — Project Log
 
+## 2026-07-02 — Notarització Apple del build macOS (distribució fora App Store)
+
+### Objectiu
+
+Poder compartir `iPhotoManager.app` a **qualsevol Mac** sense que Gatekeeper el bloquegi ni calgui treure la quarantena manualment (`xattr`). Fins ara `build.sh` firmava amb un certificat *Apple Development* → només corria localment.
+
+### Muntatge (fet un sol cop, ja no cal repetir)
+
+1. **Xcode → Settings → Accounts**: iniciat sessió amb l'Apple ID de MassiuSoft (`enric@massiusoft.com`, team `YQYXYXUDWA`).
+2. **Manage Certificates → + → Developer ID Application**: creat i instal·lat a la keychain el certificat `Developer ID Application: MassiuSoft SL (YQYXYXUDWA)` (SHA1 `E48F1489FCFB608F180DC17B321D6F28D248736E`).
+3. **App-specific password** generada a appleid.apple.com (nom `notarize-iphoto`).
+4. Credencials guardades a la keychain amb `xcrun notarytool store-credentials "massiusoft" --apple-id enric@massiusoft.com --team-id YQYXYXUDWA` → perfil **`massiusoft`** (validat OK).
+
+### Nou script `MacOS/notarize.sh`
+
+Fa tot el flux de distribució en una comanda: build release → `codesign` amb Developer ID + `--options runtime` (hardened) + `--timestamp` → `ditto` zip → `xcrun notarytool submit --keychain-profile massiusoft --wait` → `xcrun stapler staple` → re-empaqueta a `~/Desktop/iPhotoManager-mac.zip`.
+
+**Per a futures versions n'hi ha prou amb:**
+```bash
+cd ~/Projectes/iphoto-importer/MacOS && ./notarize.sh
+```
+
+### Notes
+
+- El build és **arm64** (Apple Silicon). Per a Macs Intel caldria fer-lo universal.
+- `build.sh` (debug, firma Apple Development) segueix servint per a iteració local ràpida; `notarize.sh` és per a distribució.
+- La cua de notarització d'Apple pot trigar de 2 a 20 min; el `--wait` bloqueja fins que acaba.
+
+---
+
 ## 2026-05-02 — Fix penjada en desconnectar iPhone + selector destí Mirat visible
 
 ### Problema 1: app es penja en desenxufar l'iPhone durant browse
