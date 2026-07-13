@@ -1,4 +1,4 @@
-# iPhoto Viewer
+# Photo Manager
 
 Aplicació d'escriptori per visualitzar, gestionar i importar fotos i vídeos. Inclou visor d'imatges complet amb suport per carpetes locals i importació des de dispositius MTP (iPhone).
 

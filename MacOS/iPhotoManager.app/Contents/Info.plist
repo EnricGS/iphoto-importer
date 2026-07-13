@@ -7,9 +7,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.iphotomanager.app</string>
     <key>CFBundleName</key>
-    <string>iPhoto Manager</string>
+    <string>Photo Manager</string>
     <key>CFBundleDisplayName</key>
-    <string>iPhoto Manager</string>
+    <string>Photo Manager</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleVersion</key>

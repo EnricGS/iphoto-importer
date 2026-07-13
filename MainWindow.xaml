@@ -4,7 +4,7 @@
         xmlns:vm="clr-namespace:iPhotoImporter.ViewModels"
         xmlns:conv="clr-namespace:iPhotoImporter.Converters"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
-        Title="iPhoto Manager"
+        Title="Photo Manager"
         Height="800" Width="1200"
         MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
@@ -288,7 +288,7 @@
                         <TextBlock Text="&#xEB9F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                    FontSize="16" Foreground="{StaticResource Accent}" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBlock Text="iPhoto Manager"
+                    <TextBlock Text="Photo Manager"
                                FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"
                                VerticalAlignment="Center" Opacity="0.9"/>
                 </StackPanel>

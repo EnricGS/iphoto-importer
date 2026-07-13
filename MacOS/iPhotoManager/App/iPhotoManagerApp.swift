@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// iPhoto Manager - macOS native image viewer and manager.
+/// Photo Manager - macOS native image viewer and manager.
 @main
 struct iPhotoManagerApp: App {
     init() {
@@ -14,7 +14,7 @@ struct iPhotoManagerApp: App {
 
     var body: some Scene {
         let screenSize = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1400, height: 900)
-        WindowGroup("iPhoto Manager") {
+        WindowGroup("Photo Manager") {
             ContentView()
                 .frame(minWidth: 800, minHeight: 500)
         }

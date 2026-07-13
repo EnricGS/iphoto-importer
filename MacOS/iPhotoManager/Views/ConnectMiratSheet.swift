@@ -67,7 +67,7 @@ struct ConnectMiratSheet: View {
             Text("Vincular amb Mirat")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(Color.textPrimary)
-            Text("Connecta iPhoto Manager amb el teu compte de Mirat.")
+            Text("Connecta Photo Manager amb el teu compte de Mirat.")
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textSecondary)
         }

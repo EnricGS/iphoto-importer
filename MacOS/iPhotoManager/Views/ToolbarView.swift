@@ -22,7 +22,7 @@ struct ToolbarView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help("Sobre iPhoto Manager")
+            .help("Sobre Photo Manager")
             .sheet(isPresented: $showAbout) {
                 VStack(spacing: 16) {
                     ZStack {
@@ -34,7 +34,7 @@ struct ToolbarView: View {
                             .foregroundStyle(Color.accent)
                     }
 
-                    Text("iPhoto Manager")
+                    Text("Photo Manager")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(Color.textPrimary)
 
@@ -64,7 +64,7 @@ struct ToolbarView: View {
                 .background(Color.bgBase)
             }
 
-            Text("iPhoto Manager")
+            Text("Photo Manager")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.textPrimary)
                 .opacity(0.9)

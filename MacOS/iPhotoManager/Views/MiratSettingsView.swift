@@ -22,7 +22,7 @@ struct MiratSettingsView: View {
                 Text("Destins Mirat")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color.textPrimary)
-                Text("Vincula iPhoto Manager amb el teu compte de Mirat per pujar fotos.")
+                Text("Vincula Photo Manager amb el teu compte de Mirat per pujar fotos.")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textSecondary)
             }

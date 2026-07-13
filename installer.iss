@@ -1,7 +1,7 @@
-; Script d'instal·lació Inno Setup per iPhoto Importer
+; Script d'instal·lació Inno Setup per Photo Manager
 ; Requereix Inno Setup 6: https://jrsoftware.org/isdl.php
 
-#define MyAppName "iPhoto Importer"
+#define MyAppName "Photo Manager"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Enric"
 #define MyAppExeName "iPhotoImporter.exe"
@@ -15,7 +15,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=installer_output
-OutputBaseFilename=iPhotoImporter_Setup_{#MyAppVersion}
+OutputBaseFilename=PhotoManager_Setup_{#MyAppVersion}
 SetupIconFile=app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

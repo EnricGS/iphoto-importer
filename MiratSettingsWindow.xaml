@@ -23,7 +23,7 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,18">
             <TextBlock Text="Destins Mirat" FontSize="20" FontWeight="SemiBold"
                        Foreground="{StaticResource TextPrimary}"/>
-            <TextBlock Text="Vincula iPhoto Manager amb el teu compte de Mirat per pujar fotos."
+            <TextBlock Text="Vincula Photo Manager amb el teu compte de Mirat per pujar fotos."
                        FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,4,0,0"/>
         </StackPanel>
 

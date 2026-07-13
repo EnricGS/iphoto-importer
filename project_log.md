@@ -1,5 +1,22 @@
 # iPhotoManager — Project Log
 
+## 2026-07-13 — Icona nova + rename públic a «Photo Manager»
+
+### Icona
+Redissenyada la icona de l'app (abans «graella + visor», poc reconeixible com a gestor de fotos) via **Claude Design**. Triada una **pila de fotos oberta**: ventall de fotos crema amb un paisatge (muntanya + sol) a la de davant, sobre fons fosc càlid amb accent ambre/terracota. Font vectorial a **`brand/icon.svg`**; script **`brand/make-icons.sh`** (rsvg-convert + ImageMagick + iconutil) regenera i col·loca:
+- `app.ico` (Windows, 16→256)
+- `AppIcon.icns` + `iPhotoManager.icns` (macOS, 16→1024) a totes les ubicacions del bundle `.app`.
+
+`AppIcon` i `iPhotoManager` ara són la mateixa icona (la pila). Per regenerar després d'editar el SVG: `./brand/make-icons.sh`.
+
+### Rename → «Photo Manager»
+Canviat el nom **visible** de l'app a **Photo Manager** (abans «iPhoto Manager»/«iPhoto Importer»; «iPhoto» és marca d'Apple). Tocades només les cadenes de cara a l'usuari; els identificadors interns es mantenen per no trencar builds ni orfenar caches:
+- **Windows**: `installer.iss` (`MyAppName`, `OutputBaseFilename=PhotoManager_Setup_*`), `iPhotoImporter.csproj` (`Product`/`AssemblyTitle`/`Version=1.0.0`), títol + capçalera de `MainWindow.xaml`, textos Connect/Settings. Es manté `AssemblyName=iPhotoImporter` → l'exe segueix sent `iPhotoImporter.exe` i els paths `%LocalAppData%\iPhotoImporter\`.
+- **macOS**: `Info.plist` (`CFBundleName`/`CFBundleDisplayName`), `WindowGroup`, vistes About/Toolbar/Connect/Settings. Es manté el bundle `iPhotoManager.app`, `CFBundleExecutable`, `CFBundleIdentifier com.iphotomanager.app`.
+
+### Pendent (descàrrega des de Mirat)
+Windows: compilar exe/instal·lador en una màquina Windows (Inno Setup) — per això es fa commit+push. macOS: `cd MacOS && ./notarize.sh` (idealment empaquetant com a `Photo Manager.app`). Menor: el badge del header WPF encara és un glif Segoe, no la pila.
+
 ## 2026-07-02 — Notarització Apple del build macOS (distribució fora App Store)
 
 ### Objectiu

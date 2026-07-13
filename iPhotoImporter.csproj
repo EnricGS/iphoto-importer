@@ -9,6 +9,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Product>Photo Manager</Product>
+    <AssemblyTitle>Photo Manager</AssemblyTitle>
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <!-- Configuració de publicació -->
