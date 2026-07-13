@@ -1,5 +1,29 @@
 # iPhotoManager — Project Log
 
+## 2026-07-14 — Build Windows de distribució + investigació signatura de codi
+
+### Build fet (màquina Windows)
+
+Compilat l'instal·lador descarregable per a usuaris finals, amb la icona nova i el nom «Photo Manager»:
+
+1. `dotnet publish -c Release -o publish` → `publish\iPhotoImporter.exe` (~80 MB, single-file + self-contained win-x64; porta el runtime .NET 8 a dins, l'usuari final no ha d'instal·lar res).
+2. Inno Setup 6 (`ISCC.exe installer.iss`) → `installer_output\PhotoManager_Setup_1.0.0.exe` (~75 MB, compressió LZMA2/ultra64).
+
+Verificat: `ProductName=Photo Manager`, `Version=1.0.0`, icona nova (`app.ico` 364 KB) aplicada tant a l'exe com al `Setup.exe`. Idiomes de l'instal·lador: català, castellà, anglès. Eliminat l'instal·lador antic `iPhotoImporter_Setup_1.0.0.exe` (nom/icona vells).
+
+Nota: l'exe de `publish\` **funciona directament** (doble clic, sense instal·lar .NET); el setup només afegeix comoditat (dreceres menú Inici/escriptori, còpia a Program Files, desinstal·lador). `publish/` i `installer_output/` estan a `.gitignore`.
+
+### Signatura de codi (Windows) — investigació i decisió
+
+Cap dels binaris (ni l'exe sol ni el setup) està signat → SmartScreen mostra «Windows ha protegit el teu PC» el primer cop. Per treure-ho cal un **certificat de code-signing** d'una CA reconeguda per Windows. Aclariment important: **ni el compte de Google (Play Console, només Android) ni el d'Apple Developer (macOS) serveixen per signar `.exe` de Windows** — són ecosistemes separats.
+
+Opcions:
+- **Azure Trusted Signing (Microsoft)** — ~10 $/mes, al núvol (sense token USB físic), s'integra amb `signtool.exe`. Requereix entitat legal verificable → **MassiuSoft SL hi qualifica**. **Opció triada** (millor cost/benefici; es comporta com un EV per a SmartScreen).
+- **Certificat EV** (Sectigo/DigiCert/GlobalSign) — ~300–600 $/any, token hardware obligatori, treu l'avís SmartScreen des del dia 1.
+- **Certificat OV** — ~200–400 $/any, token hardware, la reputació SmartScreen s'acumula amb les descàrregues.
+
+**Pendent:** donar d'alta Azure Trusted Signing amb MassiuSoft SL i afegir el pas `signtool sign /fd sha256 /tr <timestamp-url> ...` al final del build (signar `iPhotoImporter.exe` i `Setup.exe`). De moment es distribueix **sense signar**.
+
 ## 2026-07-13 — Icona nova + rename públic a «Photo Manager»
 
 ### Icona
