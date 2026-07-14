@@ -1,5 +1,15 @@
 # iPhotoManager — Project Log
 
+## 2026-07-14 — Release pública v1.0.0 (Mac notaritzat) + descàrrega des de Mirat
+
+**Build macOS notaritzat** (`MacOS/notarize.sh`): `swift build -c release` → codesign *Developer ID Application: MassiuSoft SL* (hardened runtime) → `notarytool submit --wait` → **Accepted** → `stapler staple`. Reempaquetat com a **`Photo Manager.app`** (el bundle es renombra DESPRÉS de notaritzar/estapar; el segell no depèn del nom de carpeta → `spctl` segueix «accepted, source=Notarized Developer ID») i comprimit a `PhotoManager-1.0.0-mac.zip` (~3,6 MB, arm64 natiu). Commit del `.app` re-signat/notaritzat: `ee3adca`.
+
+**GitHub Release `v1.0.0`** (repo públic `EnricGS/iphoto-importer`) amb els dos binaris descarregables:
+- `PhotoManager_Setup_1.0.0.exe` — Windows x64 (~75 MB, self-contained + Inno Setup; build fet a màquina Windows, vegeu l'entrada següent)
+- `PhotoManager-1.0.0-mac.zip` — macOS arm64 notaritzat (~3,6 MB)
+
+**Descàrrega des de Mirat**: la web `/baixar` (miratfotos.com) enllaça aquests assets via `/api/desktop/download?platform=win|mac`, que fa **302 a l'asset de la GitHub Release** (repo públic → CDN de GitHub, res a MinIO). Detalls al `project_log.md` de **mirat**. ⚠️ El Windows encara **no està signat** (SmartScreen mostra l'avís el primer cop) — pendent Azure Trusted Signing amb MassiuSoft SL.
+
 ## 2026-07-14 — Build Windows de distribució + investigació signatura de codi
 
 ### Build fet (màquina Windows)
