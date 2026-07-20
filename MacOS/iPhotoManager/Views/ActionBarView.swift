@@ -50,7 +50,7 @@ struct ActionBarView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(viewModel.deviceService.isImporting)
-                .help("Import selected photos to a local folder")
+                .help("Importa les seleccionades a una carpeta local")
 
                 // Enviar directament a Mirat (només si hi ha un destí vinculat).
                 if viewModel.hasActiveMiratDestination {
@@ -77,28 +77,52 @@ struct ActionBarView: View {
                 }
                 .buttonStyle(DangerButtonStyle())
                 .disabled(viewModel.deviceService.isImporting)
-                .help("Delete selected from device")
+                .help("Elimina les seleccionades del dispositiu (permanent, sense desfer)")
             } else {
-                // Local file actions
+                // Local file actions.
+                // Amb un destí Mirat actiu, Copiar/Moure pugen al núvol: fem-ho
+                // visible al punt d'acció (píndola + icona de núvol al botó).
+                if viewModel.hasActiveMiratDestination {
+                    HStack(spacing: 5) {
+                        Image(systemName: "icloud.and.arrow.up")
+                            .font(.system(size: 10))
+                        Text("→ \(viewModel.activeMiratLabel)")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundStyle(Color.accent)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.accentSubtle)
+                    .clipShape(Capsule())
+                    .frame(maxWidth: 240)
+                    .help("Destí Mirat actiu: «Copiar» puja a Mirat i «Moure» puja i esborra el fitxer local. Desactiva'l amb la X del capdamunt per tornar a copiar/moure a carpetes.")
+                }
+
                 Button {
                     Task { await viewModel.copySelected() }
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: viewModel.hasActiveMiratDestination ? "icloud.and.arrow.up" : "doc.on.doc")
                         .font(.system(size: 14))
                 }
                 .buttonStyle(ToolbarIconButtonStyle())
                 .disabled(viewModel.isCopying)
-                .help("Copy selected to another folder")
+                .help(viewModel.hasActiveMiratDestination
+                      ? "Pujar les seleccionades a Mirat"
+                      : "Copiar les seleccionades a una altra carpeta")
 
                 Button {
                     Task { await viewModel.moveSelected() }
                 } label: {
-                    Image(systemName: "folder")
+                    Image(systemName: viewModel.hasActiveMiratDestination ? "icloud.and.arrow.up.fill" : "folder")
                         .font(.system(size: 14))
                 }
                 .buttonStyle(ToolbarIconButtonStyle())
                 .disabled(viewModel.isCopying)
-                .help("Move selected to another folder")
+                .help(viewModel.hasActiveMiratDestination
+                      ? "Moure a Mirat: puja les seleccionades i mou el fitxer local a la Paperera"
+                      : "Moure les seleccionades a una altra carpeta")
 
                 Button {
                     // Amb el visor obert, Delete elimina NOMÉS la foto del visor
@@ -115,7 +139,7 @@ struct ActionBarView: View {
                 .buttonStyle(DangerButtonStyle())
                 .disabled(viewModel.isCopying)
                 .keyboardShortcut(.delete, modifiers: [])
-                .help("Delete selected (Del)")
+                .help("Eliminar les seleccionades (Supr)")
             }
 
             Divider()
@@ -130,7 +154,7 @@ struct ActionBarView: View {
                     .foregroundStyle(Color.textPrimary)
             }
             .buttonStyle(.plain)
-            .help("Deselect all (Cmd+D)")
+            .help("Desseleccionar-ho tot (⌘D)")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

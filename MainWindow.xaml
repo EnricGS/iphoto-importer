@@ -269,6 +269,7 @@
     <Window.InputBindings>
         <!-- Ctrl+Z desfà el darrer delete (restaura de la paperera) -->
         <KeyBinding Modifiers="Control" Key="Z" Command="{Binding UndoLastDeleteCommand}"/>
+        <KeyBinding Key="F1" Command="{Binding ToggleHelpOverlayCommand}"/>
     </Window.InputBindings>
 
     <Grid>
@@ -438,6 +439,14 @@
                         <TextBlock Text="&#xE8EA;" FontFamily="Segoe MDL2 Assets" FontSize="15"
                                    Foreground="{StaticResource TextPrimary}"/>
                     </Button>
+
+                    <!-- Ajuda: dreceres i gestos (F1) -->
+                    <Button Style="{StaticResource BtnToolbarIcon}"
+                            Command="{Binding ToggleHelpOverlayCommand}"
+                            ToolTip="Dreceres i gestos (F1)" Margin="6,0,0,0">
+                        <TextBlock Text="&#xE897;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                   Foreground="{StaticResource TextPrimary}"/>
+                    </Button>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -473,7 +482,7 @@
                         <!-- Botó carregar més (visible quan NO està carregant) -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnToolbar}" Padding="8,4" Margin="0,0,8,0"
                                 Command="{Binding LoadMoreFromDeviceCommand}"
-                                ToolTip="Carregar un mes addicional de fotos"
+                                ToolTip="Per anar ràpid només es carreguen els mesos més recents; cada clic carrega un mes més enrere"
                                 Visibility="{Binding IsBrowsingDevice, Converter={StaticResource InvBoolToVis}}">
                             <TextBlock FontSize="11" Foreground="{StaticResource Accent}">
                                 <Run Text="+ Mes anterior"/>
@@ -500,6 +509,10 @@
                                 <Run Text="{Binding DeviceFileCount, Mode=OneWay}"/>
                                 <Run Text="fitxers"/>
                             </TextBlock>
+                            <TextBlock Text="· es carreguen només els mesos recents"
+                                       FontSize="10" Foreground="{StaticResource TextDim}"
+                                       VerticalAlignment="Center" Margin="8,0,0,0"
+                                       ToolTip="Per anar ràpid, del dispositiu només es carreguen els mesos més recents. Amplia amb «+ Mes anterior»."/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
@@ -631,6 +644,7 @@
                                        Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <Slider Value="{Binding ThumbnailSize}" Minimum="80" Maximum="400"
                                     Width="100" VerticalAlignment="Center"
+                                    ToolTip="Mida de les miniatures"
                                     Style="{StaticResource ModernSlider}"/>
                             <TextBlock Text="&#xF0E2;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                        Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center" Margin="6,0,0,0"/>
@@ -1024,17 +1038,68 @@
                         <!-- Botons d'accio mode LOCAL -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                                     Visibility="{Binding IsDeviceBrowseMode, Converter={StaticResource InvBoolToVis}}">
-                            <Button Style="{StaticResource BtnToolbarIcon}"
-                                    Command="{Binding CopySelectedCommand}"
-                                    Margin="4,0" ToolTip="Copiar seleccionats">
-                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                                           Foreground="{StaticResource TextPrimary}"/>
+                            <!-- Píndola d'avís: amb destí Mirat actiu, Copiar/Moure pugen al núvol -->
+                            <Border Background="{StaticResource AccentSubtle}" CornerRadius="10" Padding="8,3"
+                                    Margin="0,0,6,0" VerticalAlignment="Center"
+                                    Visibility="{Binding HasActiveMiratDestination, Converter={StaticResource BoolToVis}}"
+                                    ToolTip="Destí Mirat actiu: «Copiar» puja a Mirat i «Moure» puja i mou el fitxer local a la paperera. Desactiva'l amb la X del capdamunt per tornar a copiar/moure a carpetes.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE753;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                               Foreground="{StaticResource Accent}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBlock Text="{Binding ActiveMiratLabel}" FontSize="11" FontWeight="Medium"
+                                               Foreground="{StaticResource Accent}" VerticalAlignment="Center"
+                                               MaxWidth="180" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Border>
+                            <Button Command="{Binding CopySelectedCommand}" Margin="4,0">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource BtnToolbarIcon}">
+                                        <Setter Property="ToolTip" Value="Copiar seleccionats a una altra carpeta"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasActiveMiratDestination}" Value="True">
+                                                <Setter Property="ToolTip" Value="Pujar seleccionats a Mirat"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                                <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="{StaticResource TextPrimary}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="&#xE8C8;"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasActiveMiratDestination}" Value="True">
+                                                    <Setter Property="Text" Value="&#xE753;"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Button>
-                            <Button Style="{StaticResource BtnToolbarIcon}"
-                                    Command="{Binding MoveSelectedCommand}"
-                                    Margin="4,0" ToolTip="Moure seleccionats">
-                                <TextBlock Text="&#xE8DE;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                                           Foreground="{StaticResource TextPrimary}"/>
+                            <Button Command="{Binding MoveSelectedCommand}" Margin="4,0">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource BtnToolbarIcon}">
+                                        <Setter Property="ToolTip" Value="Moure seleccionats a una altra carpeta"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasActiveMiratDestination}" Value="True">
+                                                <Setter Property="ToolTip" Value="Moure a Mirat: puja els seleccionats i mou el fitxer local a la paperera"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                                <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="{StaticResource TextPrimary}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="&#xE8DE;"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasActiveMiratDestination}" Value="True">
+                                                    <Setter Property="Text" Value="&#xE898;"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Button>
                             <Button Style="{StaticResource BtnDanger}"
                                     Command="{Binding DeleteSelectedCommand}"
@@ -1132,7 +1197,7 @@
 
                         <!-- Copiar (macOS: doc.on.doc) -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
-                                Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar foto actual al destí (C)"
+                                Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar la foto al destí (C) — amb un destí Mirat actiu, la puja a Mirat"
                                 Padding="6,4" Margin="4,0,0,0">
                             <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                                        Foreground="{StaticResource TextPrimary}"/>
@@ -1278,7 +1343,7 @@
 
                         <!-- Copiar (macOS: doc.on.doc) -->
                         <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}"
-                                Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar foto actual al destí (C)"
+                                Command="{Binding CopyCurrentPhotoCommand}" ToolTip="Copiar la foto al destí (C) — amb un destí Mirat actiu, la puja a Mirat"
                                 Margin="8,0,0,0">
                             <TextBlock Text="&#xE8C8;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
                                        Foreground="White"/>
@@ -1658,5 +1723,184 @@
                 </TextBlock>
             </DockPanel>
         </Border>
+
+        <!-- ==================== OVERLAY D'AJUDA (F1): dreceres i gestos ==================== -->
+        <Grid Grid.Row="0" Grid.RowSpan="3" Panel.ZIndex="2000"
+              Visibility="{Binding IsHelpOverlayVisible, Converter={StaticResource BoolToVis}}">
+            <Grid.Resources>
+                <Style x:Key="HelpKeyBox" TargetType="Border">
+                    <Setter Property="Background" Value="{StaticResource BgElevated}"/>
+                    <Setter Property="CornerRadius" Value="4"/>
+                    <Setter Property="Padding" Value="6,1"/>
+                    <Setter Property="MinWidth" Value="86"/>
+                    <Setter Property="Margin" Value="0,0,8,0"/>
+                    <Setter Property="VerticalAlignment" Value="Top"/>
+                </Style>
+                <Style x:Key="HelpKeyText" TargetType="TextBlock">
+                    <Setter Property="FontFamily" Value="Consolas"/>
+                    <Setter Property="FontSize" Value="11"/>
+                    <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                </Style>
+                <Style x:Key="HelpDesc" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="11.5"/>
+                    <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+                    <Setter Property="TextWrapping" Value="Wrap"/>
+                    <Setter Property="MaxWidth" Value="230"/>
+                    <Setter Property="VerticalAlignment" Value="Center"/>
+                </Style>
+                <Style x:Key="HelpSectionTitle" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="10"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+                    <Setter Property="Margin" Value="0,0,0,7"/>
+                </Style>
+                <Style x:Key="HelpRow" TargetType="StackPanel">
+                    <Setter Property="Orientation" Value="Horizontal"/>
+                    <Setter Property="Margin" Value="0,0,0,5"/>
+                </Style>
+            </Grid.Resources>
+
+            <!-- Fons translúcid: clic fora tanca -->
+            <Border Background="#CC121014" MouseLeftButtonDown="HelpBackdrop_MouseDown"/>
+
+            <Border MaxWidth="760" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{StaticResource BgSurface}" BorderBrush="{StaticResource BorderSubtle}"
+                    BorderThickness="1" CornerRadius="12" Padding="28,22">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,16">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource BtnIcon}" Padding="6,4"
+                                Command="{Binding ToggleHelpOverlayCommand}" ToolTip="Tancar (Esc)">
+                            <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                       FontSize="12" Foreground="{StaticResource TextDim}"/>
+                        </Button>
+                        <TextBlock Text="Dreceres i gestos" FontSize="17" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimary}"/>
+                    </DockPanel>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="28"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Columna esquerra: General + Visor -->
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="GENERAL" Style="{StaticResource HelpSectionTitle}"/>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Ctrl+O"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Afegir una carpeta (se suma a les obertes)"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Ctrl+A / D"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Seleccionar-ho tot / desseleccionar"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Ctrl+Z"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Desfer l'últim esborrat"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Tab / F5"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Visor lateral ↔ superposat"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Supr"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Eliminar la selecció (a la paperera)"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}" Margin="0,0,0,14">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="F1"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Aquest full d'ajuda"/>
+                            </StackPanel>
+
+                            <TextBlock Text="VISOR" Style="{StaticResource HelpSectionTitle}"/>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="←  →"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Foto anterior / següent"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="+  −  0"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Apropar · allunyar · zoom 100%"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="F"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Ajustar a la pantalla"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="C"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Copiar la foto al destí (o pujar-la a Mirat)"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Espai"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Vídeo: reproduir / pausar"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Esc"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Tancar el visor"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Columna dreta: Ratolí + Bo de saber -->
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="RATOLÍ I GESTOS" Style="{StaticResource HelpSectionTitle}"/>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="clic"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Obre la foto al visor"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="Ctrl/Maj+clic"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Selecció individual / per interval"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="arrossegar"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="En zona buida: selecció per rectangle"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="arrossegar"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Miniatures cap a l'Explorador o el correu: copia els fitxers"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="roda"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Al visor: zoom centrat al cursor"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="arrossegar"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Al visor amb zoom: moure's per la foto"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="doble clic"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Tanca el visor superposat"/>
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource HelpRow}" Margin="0,0,0,14">
+                                <Border Style="{StaticResource HelpKeyBox}"><TextBlock Style="{StaticResource HelpKeyText}" Text="clic dret"/></Border>
+                                <TextBlock Style="{StaticResource HelpDesc}" Text="Desselecciona-ho tot"/>
+                            </StackPanel>
+
+                            <TextBlock Text="BO DE SABER" Style="{StaticResource HelpSectionTitle}"/>
+                            <TextBlock Style="{StaticResource HelpDesc}" MaxWidth="330" Margin="0,0,0,5"
+                                       Text="· Amb un destí Mirat actiu, «Copiar» i «Moure» pugen les fotos a Mirat («Moure» esborra el local després de pujar)."/>
+                            <TextBlock Style="{StaticResource HelpDesc}" MaxWidth="330" Margin="0,0,0,5"
+                                       Text="· iPhone: connecta'l per USB, desbloqueja'l i prem «Confiar»."/>
+                            <TextBlock Style="{StaticResource HelpDesc}" MaxWidth="330"
+                                       Text="· Del dispositiu es carreguen només els mesos recents; amplia amb «+ Mes anterior»."/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Height="1" Background="{StaticResource BorderSubtle}" Margin="0,16,0,12"/>
+
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Guia completa (importar, Mirat, duplicats, problemes):"
+                                   FontSize="11" Foreground="{StaticResource TextSecondary}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <Button Style="{StaticResource BtnIcon}" Padding="2,0"
+                                Command="{Binding OpenHelpGuideCommand}"
+                                ToolTip="Obre la guia al navegador">
+                            <TextBlock Text="miratfotos.com/ajuda/photo-manager" FontSize="11"
+                                       Foreground="{StaticResource Accent}" TextDecorations="Underline"/>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

@@ -40,7 +40,7 @@ struct ViewerPanelView: View {
                     .buttonStyle(.plain)
                     .opacity(0.5)
                     .padding(.leading, 10)
-                    .help("Previous")
+                    .help("Anterior (←)")
 
                     Spacer()
 
@@ -55,7 +55,7 @@ struct ViewerPanelView: View {
                     .buttonStyle(.plain)
                     .opacity(0.5)
                     .padding(.trailing, 10)
-                    .help("Next")
+                    .help("Següent (→)")
                 }
             }
 
@@ -82,7 +82,7 @@ struct ViewerPanelView: View {
                     .font(.system(size: 11))
             }
             .buttonStyle(IconButtonStyle())
-            .help("Zoom out (-)")
+            .help("Allunyar (-)")
 
             Text("\(Int(viewModel.viewerZoom * 100))%")
                 .font(.system(size: 10, design: .monospaced))
@@ -94,7 +94,7 @@ struct ViewerPanelView: View {
                     .font(.system(size: 11))
             }
             .buttonStyle(IconButtonStyle())
-            .help("Zoom in (+)")
+            .help("Apropar (+)")
 
             Button { viewModel.viewerZoomReset() } label: {
                 Text("1:1")
@@ -102,7 +102,7 @@ struct ViewerPanelView: View {
                     .foregroundStyle(Color.textDim)
             }
             .buttonStyle(IconButtonStyle())
-            .help("Reset zoom (0)")
+            .help("Zoom 100% (0)")
 
             // Select/deselect current photo
             Button {

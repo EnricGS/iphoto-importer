@@ -45,17 +45,26 @@
                 </Border>
 
                 <TextBlock x:Name="BrowserHint" Visibility="Collapsed"
-                           Text="El navegador s'hauria d'haver obert automàticament. Si no, obre:"
+                           Text="Inicia sessió a Mirat al navegador i confirma aquest codi. Si el navegador no s'ha obert (o l'has tancat):"
                            FontSize="11" Foreground="{StaticResource TextSecondary}"
                            TextAlignment="Center" TextWrapping="Wrap"
                            Margin="20,14,20,0"/>
+
+                <Button x:Name="OpenBrowserButton" Visibility="Collapsed"
+                        Padding="14,7" Margin="0,10,0,0"
+                        HorizontalAlignment="Center"
+                        Background="{StaticResource Accent}"
+                        Foreground="{StaticResource TextOnAccent}"
+                        BorderThickness="0" FontSize="12" FontWeight="SemiBold"
+                        Click="OpenBrowserButton_Click"
+                        Content="Obrir el navegador"/>
 
                 <TextBlock x:Name="VerificationUrlText" Visibility="Collapsed"
                            FontSize="11" Foreground="{StaticResource Accent}"
                            TextDecorations="Underline"
                            HorizontalAlignment="Center" Cursor="Hand"
                            MouseLeftButtonUp="VerificationUrl_Click"
-                           Margin="0,4,0,0"/>
+                           Margin="0,6,0,0"/>
 
                 <StackPanel x:Name="PollingIndicator" Visibility="Collapsed"
                             Orientation="Horizontal" HorizontalAlignment="Center"
@@ -118,13 +127,21 @@
                 Margin="0,12,0,12"/>
 
         <!-- Peu -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="CloseButton" Content="Cancel·lar" Padding="14,7"
-                    Background="Transparent"
-                    Foreground="{StaticResource TextSecondary}"
-                    BorderBrush="{StaticResource BorderSubtle}"
-                    BorderThickness="1" FontSize="12"
-                    Click="Close_Click"/>
-        </StackPanel>
+        <DockPanel Grid.Row="3">
+            <TextBlock DockPanel.Dock="Left" Text="Necessites ajuda per vincular?"
+                       FontSize="11" Foreground="{StaticResource TextDim}"
+                       TextDecorations="Underline" Cursor="Hand"
+                       VerticalAlignment="Center"
+                       MouseLeftButtonUp="HelpLink_Click"
+                       ToolTip="Obre la guia de vinculació al navegador"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CloseButton" Content="Cancel·lar" Padding="14,7"
+                        Background="Transparent"
+                        Foreground="{StaticResource TextSecondary}"
+                        BorderBrush="{StaticResource BorderSubtle}"
+                        BorderThickness="1" FontSize="12"
+                        Click="Close_Click"/>
+            </StackPanel>
+        </DockPanel>
     </Grid>
 </Window>

@@ -5,6 +5,7 @@ struct ToolbarView: View {
     @Bindable var viewModel: MainViewModel
     @State private var showAbout = false
     @State private var showMiratSettings = false
+    @State private var showHelp = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -194,6 +195,20 @@ struct ToolbarView: View {
             }
             .buttonStyle(ToolbarIconButtonStyle())
             .help("Importar des del dispositiu (iPhone)")
+
+            // Ajuda: dreceres i gestos (⌘/)
+            Button {
+                showHelp = true
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 15))
+            }
+            .buttonStyle(ToolbarIconButtonStyle())
+            .keyboardShortcut("/", modifiers: .command)
+            .help("Dreceres i gestos (⌘/)")
+            .sheet(isPresented: $showHelp) {
+                HelpShortcutsView()
+            }
 
             Spacer()
         }

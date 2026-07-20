@@ -1,5 +1,23 @@
 # iPhotoManager — Project Log
 
+## 2026-07-20 — Sistema d'ajuda (3 capes) després d'una revisió UX completa
+
+Revisió a fons de les dues apps (2 subagents, tot el codi) per decidir el sistema d'ajuda. Diagnòstic: cap ajuda in-app (ni menú, ni F1, ni onboarding), bons tooltips als botons però **totes** les interaccions potents amagades (rubber-band, drag-out, roda, pan, dreceres), i el punt de confusió #1 a les dues plataformes: amb destí Mirat actiu, «Copiar»/«Moure» canvien de significat en silenci. Decisió (documentada aquí; guia = una sola font per a les dues apps):
+
+**Capa 1 — Full de dreceres in-app** (contingut estàtic per plataforma):
+- **Windows**: overlay amb `F1` o botó «?» del toolbar (`IsHelpOverlayVisible` + `ToggleHelpOverlayCommand` al VM; overlay al final de `MainWindow.xaml` amb ZIndex 2000; Esc i clic al fons el tanquen). Enllaç a la guia web (`OpenHelpGuideCommand`).
+- **Mac**: sheet `HelpShortcutsView` amb `⌘/` o botó «?» del toolbar. Mateix contingut (dreceres, gestos, «bo de saber») + enllaç a la guia.
+
+**Capa 2 — Guia web única**: `https://miratfotos.com/ajuda/photo-manager` (repo mirat, 9 idiomes, àncores per secció). Les apps hi enllacen des del full de dreceres i des del flux de vincular (`#vincular`). Actualitzable sense treure versió de l'app.
+
+**Capa 3 — Micro-fixos de descobribilitat** (els forats que cap document arregla):
+- **Mirat visible al punt d'acció**: amb destí actiu, la barra d'accions mostra una **píndola «núvol → destí»** i els botons Copiar/Moure canvien la icona (núvol/pujada) i el tooltip («Pujar a Mirat» / «Moure a Mirat: puja i mou el local a la paperera»). Windows amb DataTriggers sobre `HasActiveMiratDestination`; Mac condicional al view.
+- **Vincular**: botó gran «Obrir el navegador» (reobre si no s'ha obert o s'ha tancat) + enllaç «Necessites ajuda?» → guia`#vincular`. A Windows, nou `OpenBrowserButton` + handlers.
+- **Mode dispositiu**: nota «es carreguen només els mesos recents» al banner + tooltip explicatiu a «+ Mes anterior».
+- **Mac**: tooltips residuals en anglès → català (ActionBar, ViewerPanel, ViewerOverlay), banner «Browsing:» → «Navegant:», peu del visor ampliat (roda, arrossegar, doble clic), tooltip al slider de mida (també a Windows).
+
+**Estat de verificació**: Mac `swift build` ✅; Windows **no compilat** (WPF no compila a macOS) — XAML validats amb xmllint, però cal `dotnet build` a la màquina Windows abans de distribuir. Bugs descoberts a la revisió (fora d'abast, pendents en xips): esborrat fals de fotos del dispositiu a Windows (`DeleteSelectedAsync` sense guard d'`IsDeviceBrowseMode`) i barra de menú morta al Mac (notificacions sense listeners).
+
 ## 2026-07-14 — Release pública v1.0.0 (Mac notaritzat) + descàrrega des de Mirat
 
 **Build macOS notaritzat** (`MacOS/notarize.sh`): `swift build -c release` → codesign *Developer ID Application: MassiuSoft SL* (hardened runtime) → `notarytool submit --wait` → **Accepted** → `stapler staple`. Reempaquetat com a **`Photo Manager.app`** (el bundle es renombra DESPRÉS de notaritzar/estapar; el segell no depèn del nom de carpeta → `spctl` segueix «accepted, source=Notarized Developer ID») i comprimit a `PhotoManager-1.0.0-mac.zip` (~3,6 MB, arm64 natiu). Commit del `.app` re-signat/notaritzat: `ee3adca`.

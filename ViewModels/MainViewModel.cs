@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -196,6 +197,31 @@ public partial class MainViewModel : ObservableObject
 
     public string ActiveMiratLabel =>
         ActiveMiratDestination?.DisplayLabel ?? "Sense destí Mirat";
+
+    // === Ajuda (overlay de dreceres, F1) ===
+
+    /// <summary>Overlay d'ajuda amb les dreceres i gestos (F1 o botó «?»).</summary>
+    [ObservableProperty]
+    private bool _isHelpOverlayVisible;
+
+    [RelayCommand]
+    private void ToggleHelpOverlay() => IsHelpOverlayVisible = !IsHelpOverlayVisible;
+
+    /// <summary>URL de la guia d'ús completa (una sola font per a Mac i Windows).</summary>
+    public const string HelpGuideUrl = "https://miratfotos.com/ajuda/photo-manager";
+
+    [RelayCommand]
+    private void OpenHelpGuide()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(HelpGuideUrl) { UseShellExecute = true });
+        }
+        catch
+        {
+            StatusMessage = $"No s'ha pogut obrir el navegador. Obre manualment: {HelpGuideUrl}";
+        }
+    }
 
     /// <summary>Missatge de progrés mentre s'està pujant a Mirat.</summary>
     [ObservableProperty]

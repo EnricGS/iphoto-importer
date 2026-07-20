@@ -40,7 +40,7 @@ struct ThumbnailGridView: View {
         HStack(spacing: 8) {
             Image(systemName: "iphone")
                 .foregroundStyle(Color.accent)
-            Text("Browsing: \(viewModel.deviceService.selectedDevice?.name ?? "Device")")
+            Text("Navegant: \(viewModel.deviceService.selectedDevice?.name ?? "dispositiu")")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.accent)
             Spacer()
@@ -229,6 +229,7 @@ struct ThumbnailGridView: View {
                     .foregroundStyle(Color.textPrimary)
 
                 Slider(value: $viewModel.thumbnailSize, in: 80...400, step: 10)
+                    .help("Mida de les miniatures")
                     .frame(width: 100)
                     .tint(Color.accent)
             }

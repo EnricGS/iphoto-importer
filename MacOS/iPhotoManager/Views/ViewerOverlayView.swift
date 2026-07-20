@@ -101,14 +101,14 @@ struct ViewerOverlayView: View {
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
-                        .help("Reset zoom (0)")
+                        .help("Zoom 100% (0)")
 
                         Button { viewModel.viewerFitToScreen() } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .foregroundStyle(.white)
                         }
                         .buttonStyle(.plain)
-                        .help("Fit to screen (F)")
+                        .help("Ajustar a la pantalla (F)")
                     }
 
                     // Select/deselect current photo
@@ -123,7 +123,9 @@ struct ViewerOverlayView: View {
                             .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
-                    .help("Copiar foto al destí (C)")
+                    .help(viewModel.hasActiveMiratDestination
+                          ? "Pujar la foto a Mirat (C)"
+                          : "Copiar la foto al destí (C)")
 
                     // Delete current photo — NOMÉS la del visor, sense tocar la selecció.
                     Button {
@@ -166,7 +168,7 @@ struct ViewerOverlayView: View {
                 // Bottom info bar
                 HStack {
                     Spacer()
-                    Text("Navegar  |  +/- zoom  |  Tab mode  |  Esc tancar")
+                    Text("← → navegar  ·  roda o +/- zoom  ·  arrossega per moure't  ·  C copiar  ·  doble clic o Esc tancar")
                         .font(.system(size: 11))
                         .foregroundStyle(Color.textDim)
                         .opacity(0.6)

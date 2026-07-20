@@ -59,6 +59,17 @@ public partial class ConnectMiratWindow : Window
         if (!string.IsNullOrEmpty(url)) OpenBrowser(url);
     }
 
+    private void OpenBrowserButton_Click(object sender, RoutedEventArgs e)
+    {
+        var url = VerificationUrlText.Tag as string;
+        if (!string.IsNullOrEmpty(url)) OpenBrowser(url);
+    }
+
+    private void HelpLink_Click(object sender, MouseButtonEventArgs e)
+    {
+        OpenBrowser(MainViewModel.HelpGuideUrl + "#vincular");
+    }
+
     private async Task BeginFlowAsync()
     {
         _cts?.Cancel();
@@ -90,6 +101,7 @@ public partial class ConnectMiratWindow : Window
         UserCodeBox.Visibility = Visibility.Visible;
         WaitingHint.Text = "Entra aquest codi al navegador";
         BrowserHint.Visibility = Visibility.Visible;
+        OpenBrowserButton.Visibility = Visibility.Visible;
         VerificationUrlText.Text = dc.VerificationUrl;
         VerificationUrlText.Tag = dc.VerificationUrlComplete;
         VerificationUrlText.Visibility = Visibility.Visible;
@@ -174,6 +186,7 @@ public partial class ConnectMiratWindow : Window
         WaitingHint.Text = initialHint;
         UserCodeBox.Visibility = Visibility.Collapsed;
         BrowserHint.Visibility = Visibility.Collapsed;
+        OpenBrowserButton.Visibility = Visibility.Collapsed;
         VerificationUrlText.Visibility = Visibility.Collapsed;
         PollingIndicator.Visibility = Visibility.Collapsed;
         UserCodeText.Text = "";

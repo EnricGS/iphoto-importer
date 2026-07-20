@@ -90,7 +90,7 @@ struct ConnectMiratSheet: View {
                     .background(Color.bgSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                Text("El navegador s'hauria d'haver obert automàticament. Si no, obre:")
+                Text("Inicia sessió a Mirat al navegador i confirma aquest codi. Si el navegador no s'ha obert (o l'has tancat), torna'l a obrir:")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.textSecondary)
                     .multilineTextAlignment(.center)
@@ -100,12 +100,20 @@ struct ConnectMiratSheet: View {
                         NSWorkspace.shared.open(url)
                     }
                 } label: {
-                    Text(dc.verificationUrl)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.accentColor)
-                        .underline()
+                    HStack(spacing: 6) {
+                        Image(systemName: "safari")
+                            .font(.system(size: 12))
+                        Text("Obrir el navegador")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Color.accent)
+                    .foregroundStyle(Color.textOnAccent)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .help(dc.verificationUrl)
 
                 HStack(spacing: 8) {
                     ProgressView().scaleEffect(0.6)
@@ -114,6 +122,18 @@ struct ConnectMiratSheet: View {
                         .foregroundStyle(Color.textDim)
                 }
                 .padding(.top, 8)
+
+                Button {
+                    if let url = URL(string: "https://miratfotos.com/ajuda/photo-manager#vincular") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Text("Necessites ajuda per vincular?")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Color.textDim)
+                        .underline()
+                }
+                .buttonStyle(.plain)
             } else {
                 ProgressView()
                     .padding(.top, 40)

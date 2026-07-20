@@ -167,8 +167,23 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Clic al fons translúcid de l'overlay d'ajuda: el tanca.</summary>
+    private void HelpBackdrop_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _viewModel.IsHelpOverlayVisible = false;
+        e.Handled = true;
+    }
+
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
+        // L'overlay d'ajuda (F1) es tanca amb Esc abans de processar res més
+        if (_viewModel.IsHelpOverlayVisible && e.Key == Key.Escape)
+        {
+            _viewModel.IsHelpOverlayVisible = false;
+            e.Handled = true;
+            return;
+        }
+
         // Tab i F5: canviar mode split/toggle (sempre disponible)
         if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None)
         {
