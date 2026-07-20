@@ -1923,6 +1923,16 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteSelectedAsync()
     {
+        // A l'iPhone (mode browse del dispositiu) no es pot eliminar via MTP a Windows
+        // (DeleteFile es congela indefinidament). Mateix guard que DeleteCurrentViewerAsync:
+        // sense això l'esborrat "funcionava" en fals — les fotos desapareixien de la
+        // graella (però seguien al mòbil) i el Desfer restaurava 0 fitxers.
+        if (IsDeviceBrowseMode)
+        {
+            StatusMessage = "No es poden eliminar fotos de l'iPhone des de Windows.";
+            return;
+        }
+
         // Si estem al visor sense cap foto seleccionada a la graella, eliminem la foto
         // actualment visible. Això permet que la tecla Delete funcioni al visor sense
         // que l'usuari hagi de marcar el checkbox a la graella.

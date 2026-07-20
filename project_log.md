@@ -1,5 +1,10 @@
 # iPhotoManager — Project Log
 
+## 2026-07-20 — Fixos dels 2 bugs greus de la revisió UX
+
+- **Windows — esborrat fals de fotos del dispositiu**: `DeleteSelectedAsync` (graella + tecla Supr) no comprovava `IsDeviceBrowseMode` i "esborrava" fotos de l'iPhone en fals (desapareixien de la graella, seguien al mòbil, «N eliminats correctament», Desfer→0). Afegit el mateix guard que `DeleteCurrentViewerAsync` (avís «No es poden eliminar fotos de l'iPhone des de Windows»). A més, `FileService.DeleteFilesAsync` ara compta **només els esborrats reals** (el `deleted++` era incondicional encara que `File.Exists` fos fals). ⚠️ Pendent `dotnet build` a Windows (no compila al Mac).
+- **Mac — barra de menús morta**: els 4 ítems de `.commands{}` publicaven notificacions (`.openFolder`/`.selectAll`/`.deselectAll`/`.toggleViewMode`) que ningú escoltava → clicar els menús no feia res. Afegits els `.onReceive` corresponents a `ContentView` (criden els mateixos mètodes del VM que les dreceres) + `import Combine`. També l'últim tooltip anglès («Close viewer» → «Tancar el visor (Esc)»). `swift build` ✅; queda una prova manual de clic als menús.
+
 ## 2026-07-20 — Sistema d'ajuda (3 capes) després d'una revisió UX completa
 
 Revisió a fons de les dues apps (2 subagents, tot el codi) per decidir el sistema d'ajuda. Diagnòstic: cap ajuda in-app (ni menú, ni F1, ni onboarding), bons tooltips als botons però **totes** les interaccions potents amagades (rubber-band, drag-out, roda, pan, dreceres), i el punt de confusió #1 a les dues plataformes: amb destí Mirat actiu, «Copiar»/«Moure» canvien de significat en silenci. Decisió (documentada aquí; guia = una sola font per a les dues apps):

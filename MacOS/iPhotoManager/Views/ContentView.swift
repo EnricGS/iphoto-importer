@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// Root content view that manages the overall layout:
 /// - Toolbar at top
@@ -101,6 +102,21 @@ struct ContentView: View {
         .frame(minWidth: 900, minHeight: 600)
         .onKeyPress(phases: .down) { press in
             handleKeyPress(press)
+        }
+        // Barra de menús: els Buttons de .commands{} (iPhotoManagerApp) publiquen
+        // aquestes notificacions. Sense aquests onReceive, clicar els ítems del menú
+        // no feia res (les dreceres funcionaven per handleKeyPress, els clics no).
+        .onReceive(NotificationCenter.default.publisher(for: .openFolder)) { _ in
+            viewModel.openFolder()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAll)) { _ in
+            viewModel.selectAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deselectAll)) { _ in
+            viewModel.deselectAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleViewMode)) { _ in
+            viewModel.toggleViewMode()
         }
     }
 

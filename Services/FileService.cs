@@ -361,12 +361,16 @@ public class FileService
             var file = files[i];
             progress?.Report((i + 1, files.Count, file.FileName));
 
+            // Comptar només els esborrats reals: un path inexistent (p. ex. MTP d'un
+            // dispositiu, o un fitxer ja desaparegut) no ha d'inflar el missatge d'èxit.
             await Task.Run(() =>
             {
                 if (File.Exists(file.FullPath))
+                {
                     SendToRecycleBin(file.FullPath);
+                    deleted++;
+                }
             }, ct);
-            deleted++;
         }
         return deleted;
     }

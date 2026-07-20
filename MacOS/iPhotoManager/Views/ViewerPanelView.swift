@@ -151,7 +151,7 @@ struct ViewerPanelView: View {
                     .foregroundStyle(Color.textDim)
             }
             .buttonStyle(IconButtonStyle())
-            .help("Close viewer (Esc)")
+            .help("Tancar el visor (Esc)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
