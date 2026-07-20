@@ -1,5 +1,13 @@
 # iPhotoManager — Project Log
 
+## 2026-07-21 — Release v1.0.2 completada: Mac notaritzat + web de Mirat a 1.0.2
+
+Tancament del tren de release iniciat ahir a Windows:
+- **Mac 1.0.2**: bump de versió (`Info.plist` CFBundleVersion/ShortVersionString 1.0→1.0.2 + «Sobre» del ToolbarView a «Versió 1.0.2 — Juliol 2026») → `notarize.sh` (build release + Developer ID + notarització **Accepted** + staple) → reempaquetat com a `Photo Manager.app` → **`PhotoManager-1.0.2-mac.zip`** (3,5 MB, arm64) pujat a la release **v1.0.2**, que ara té els dos assets. Aquest zip inclou tot el que el v1.0.0 no tenia: sistema d'ajuda (⌘/), fix de la barra de menús i tooltips en català.
+- **Web Mirat**: `desktop-releases.ts` → `DESKTOP_VERSION = '1.0.2'` + URLs dels dos assets de v1.0.2. Desplegat develop→main (prod). La pàgina `/baixar` mostra «Versió 1.0.2» i els botons baixen la versió nova a les dues plataformes.
+
+Queda com sempre: signatura de codi Windows (Azure Trusted Signing) pendent.
+
 ## 2026-07-20 — Release v1.0.2 Windows: actualització de seguretat de Magick.NET
 
 Patch de seguretat: **Magick.NET-Q8-AnyCPU 14.11.1 → 14.15.0**. La 14.11.1 arrossegava una llista llarga d'advisories (unes quantes *High* + ~20 *Moderate* + *Low*) de la ImageMagick nativa que porta a dins (vulnerabilitats de *parsing* d'imatges malicioses: overflows, lectures fora de límits, DoS). Amb 14.15.0, `dotnet list package --vulnerable` → **0 paquets vulnerables** i el build surt net (sense warnings NUxxxx).

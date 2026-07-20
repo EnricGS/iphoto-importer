@@ -43,7 +43,7 @@ struct ToolbarView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(Color.textSecondary)
 
-                    Text("Versió 1.0 — Abril 2026")
+                    Text("Versió 1.0.2 — Juliol 2026")
                         .font(.system(size: 11))
                         .foregroundStyle(Color.textDim)
 
