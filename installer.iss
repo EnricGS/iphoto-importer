@@ -2,7 +2,7 @@
 ; Requereix Inno Setup 6: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Photo Manager"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Enric"
 #define MyAppExeName "iPhotoImporter.exe"
 

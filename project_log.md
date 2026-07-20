@@ -1,5 +1,16 @@
 # iPhotoManager — Project Log
 
+## 2026-07-20 — Release v1.0.1 Windows publicada (checklist completat)
+
+Fet a la màquina Windows el checklist de l'entrada de sota:
+- `git pull` + `dotnet build` → **net (0 avisos, 0 errors)**; els XAML nous de `MainWindow.xaml` i els fixos compilen bé.
+- Prova manual OK: overlay d'ajuda (F1 / botó «?», Esc i clic al fons tanquen), píndola «núvol→destí» + canvi d'icona/tooltip de Copiar/Moure amb Mirat actiu, botó «Obrir el navegador» a Vincular, i el fix de l'esborrat fals de fotos de l'iPhone (Supr → avisa i no esborra).
+- Versió pujada **1.0.0 → 1.0.1** a `iPhotoImporter.csproj` i `installer.iss`.
+- `dotnet publish -c Release` (Photo Manager 1.0.1.0, ~80 MB self-contained) + Inno Setup → `PhotoManager_Setup_1.0.1.exe` (~75 MB).
+- **GitHub Release `v1.0.1`** amb l'instal·lador Windows.
+
+Nota: el publish avisa de vulnerabilitats conegudes a `Magick.NET-Q8-AnyCPU 14.11.1` (1 alta + diverses moderades/baixes) — preexistents, pendent valorar-ne l'actualització. Encara **sense signar** (SmartScreen). Parts Mac (zip `notarize.sh`) i `mirat` (`DESKTOP_VERSION`/URLs) pendents a les seves màquines/repos.
+
 ## 2026-07-20 — Fixos dels 2 bugs greus de la revisió UX
 
 - **Windows — esborrat fals de fotos del dispositiu**: `DeleteSelectedAsync` (graella + tecla Supr) no comprovava `IsDeviceBrowseMode` i "esborrava" fotos de l'iPhone en fals (desapareixien de la graella, seguien al mòbil, «N eliminats correctament», Desfer→0). Afegit el mateix guard que `DeleteCurrentViewerAsync` (avís «No es poden eliminar fotos de l'iPhone des de Windows»). A més, `FileService.DeleteFilesAsync` ara compta **només els esborrats reals** (el `deleted++` era incondicional encara que `File.Exists` fos fals). ⚠️ Pendent `dotnet build` a Windows (no compila al Mac).
