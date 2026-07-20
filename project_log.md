@@ -1,5 +1,16 @@
 # iPhotoManager — Project Log
 
+## 2026-07-20 — Release v1.0.2 Windows: actualització de seguretat de Magick.NET
+
+Patch de seguretat: **Magick.NET-Q8-AnyCPU 14.11.1 → 14.15.0**. La 14.11.1 arrossegava una llista llarga d'advisories (unes quantes *High* + ~20 *Moderate* + *Low*) de la ImageMagick nativa que porta a dins (vulnerabilitats de *parsing* d'imatges malicioses: overflows, lectures fora de límits, DoS). Amb 14.15.0, `dotnet list package --vulnerable` → **0 paquets vulnerables** i el build surt net (sense warnings NUxxxx).
+
+- Versió app 1.0.1 → 1.0.2 (`iPhotoImporter.csproj` + `installer.iss`).
+- `dotnet build` net + smoke test (l'exe self-contained arrenca sense petar amb el binari natiu nou).
+- `dotnet publish -c Release` (Photo Manager 1.0.2.0) + Inno Setup → `PhotoManager_Setup_1.0.2.exe`.
+- **GitHub Release `v1.0.2`** (Latest) amb l'instal·lador.
+
+Deixats **fora** d'aquesta release (per mantenir-la un patch net, no són de seguretat): `CommunityToolkit.Mvvm 8.4.0→8.4.2` i `VirtualizingWrapPanel 2.5.1→2.5.4`. Segueix **sense signar** (SmartScreen) i pendent actualitzar el zip Mac + URLs a `mirat` per a 1.0.2.
+
 ## 2026-07-20 — Release v1.0.1 Windows publicada (checklist completat)
 
 Fet a la màquina Windows el checklist de l'entrada de sota:
