@@ -143,8 +143,25 @@ public class MiratService : IDisposable
         };
         if (width > 0) meta["amplada"] = width;
         if (height > 0) meta["alcada"] = height;
-        if (photo.DateTaken.HasValue)
+        // Data de captura: preferim la data INTERNA del fitxer (EXIF / àtom
+        // mvhd del contenidor) i declarem la procedència a Mirat
+        // (data_original_font): 'exif' = fiable; 'fitxer' = estimada (el
+        // DateTaken de l'escaneig és el mtime) → el filtre de manteniment
+        // «Sense data» de Mirat la mostra per corregir-la a mà. Mirall del
+        // patch equivalent de l'app del Mac (MiratService.swift).
+        var internalDate = isVideo
+            ? FileService.ExtractVideoCreationDate(photo.FullPath)
+            : FileService.ExtractExifDate(photo.FullPath);
+        if (internalDate.HasValue)
+        {
+            meta["data_original"] = internalDate.Value.ToUniversalTime().ToString("o");
+            meta["data_original_font"] = "exif";
+        }
+        else if (photo.DateTaken.HasValue)
+        {
             meta["data_original"] = photo.DateTaken.Value.ToUniversalTime().ToString("o");
+            meta["data_original_font"] = "fitxer";
+        }
         if (_dest.PujatPer != null)
             meta["pujat_per"] = _dest.PujatPer;
         // GPS — del PhotoItem (poblat a l'escaneig) o, si no, extret del fitxer.

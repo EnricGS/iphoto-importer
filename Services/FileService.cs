@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Globalization;
 using System.IO;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -705,6 +707,126 @@ public class FileService
             return (lat, lon);
         }
         catch { return null; }
+    }
+
+    // === Data de captura interna ===
+
+    /// <summary>
+    /// Data de captura llegida del CONTINGUT del fitxer (EXIF), o null si no
+    /// n'hi ha. Ordre de preferència: DateTimeOriginal > DateTimeDigitized >
+    /// TIFF DateTime — el mateix que el web i el backfill de Mirat. Fa servir
+    /// Ping (només metadades, sense decodificar els píxels).
+    /// </summary>
+    public static DateTime? ExtractExifDate(string filePath)
+    {
+        try
+        {
+            using var image = new MagickImage();
+            image.Ping(filePath);
+            var exif = image.GetExifProfile();
+            if (exif == null) return null;
+
+            string?[] candidates =
+            {
+                exif.GetValue(ExifTag.DateTimeOriginal)?.Value,
+                exif.GetValue(ExifTag.DateTimeDigitized)?.Value,
+                exif.GetValue(ExifTag.DateTime)?.Value,
+            };
+            foreach (var text in candidates)
+            {
+                if (TryParseExifDate(text, out var date)) return date;
+            }
+            return null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Format EXIF "2004:07:15 10:30:00", interpretat en hora local (les dates
+    /// EXIF no duen fus; mateix criteri que el web de Mirat i l'app del Mac).
+    /// Descarta anys de farciment o corruptes (fora de 1972–2100).
+    /// </summary>
+    private static bool TryParseExifDate(string? text, out DateTime date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        if (!DateTime.TryParseExact(text.Trim(), "yyyy:MM:dd HH:mm:ss",
+                CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out date))
+            return false;
+        return date.Year > 1971 && date.Year <= 2100;
+    }
+
+    /// <summary>
+    /// Data de creació d'un vídeo MP4/MOV/M4V/3GP llegint l'àtom moov/mvhd
+    /// directament (sense dependències). L'època QuickTime és 1904-01-01 UTC;
+    /// es descarten valors de farciment (any ≤ 1971). Per a contenidors sense
+    /// mvhd (AVI, MKV, WebM, MTS…) torna null i el caller cau al mtime.
+    /// </summary>
+    public static DateTime? ExtractVideoCreationDate(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        if (ext is not (".mp4" or ".mov" or ".m4v" or ".3gp")) return null;
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return FindMvhdCreationDate(stream, stream.Length, isTopLevel: true);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Recorre les caixes ISO BMFF del rang actual buscant moov → mvhd.
+    /// </summary>
+    private static DateTime? FindMvhdCreationDate(FileStream stream, long end, bool isTopLevel)
+    {
+        Span<byte> header = stackalloc byte[16];
+        while (stream.Position + 8 <= end)
+        {
+            var boxStart = stream.Position;
+            stream.ReadExactly(header[..8]);
+            long size = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
+            var type = Encoding.ASCII.GetString(header[4..8]);
+            var headerSize = 8L;
+            if (size == 1)
+            {
+                stream.ReadExactly(header[8..16]);
+                size = (long)BinaryPrimitives.ReadUInt64BigEndian(header[8..16]);
+                headerSize = 16;
+            }
+            else if (size == 0)
+            {
+                size = end - boxStart; // "fins al final del fitxer"
+            }
+            if (size < headerSize) return null; // capçalera corrupta
+
+            // El primer àtom d'un fitxer ISO BMFF ha de ser conegut: si no ho és
+            // (p. ex. "RIFF" d'un AVI amb extensió equivocada), no és MP4/MOV.
+            if (isTopLevel && boxStart == 0 &&
+                type is not ("ftyp" or "moov" or "mdat" or "free" or "skip" or "wide" or "pnot"))
+                return null;
+
+            if (type == "moov")
+                return FindMvhdCreationDate(stream, boxStart + size, isTopLevel: false);
+
+            if (type == "mvhd" && !isTopLevel)
+            {
+                // version(1) + flags(3), després creation_time (32 o 64 bits)
+                Span<byte> body = stackalloc byte[12];
+                stream.ReadExactly(body[..4]);
+                var version = body[0];
+                var timeSize = version == 1 ? 8 : 4;
+                stream.ReadExactly(body[..timeSize]);
+                ulong seconds = version == 1
+                    ? BinaryPrimitives.ReadUInt64BigEndian(body[..8])
+                    : BinaryPrimitives.ReadUInt32BigEndian(body[..4]);
+                if (seconds == 0) return null;
+                var date = new DateTime(1904, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
+                return date.Year > 1971 && date.Year <= 2100 ? date : null;
+            }
+
+            stream.Position = boxStart + size;
+        }
+        return null;
     }
 
     // === Deduplicació: hashing ===

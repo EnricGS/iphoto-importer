@@ -1600,3 +1600,23 @@ i es declara la procedència amb el camp nou `data_original_font` de l'API:
 **Verificat**: build net; extracció EXIF provada amb JPEG real (CEST→UTC
 correcte). El costat Mirat (migració 054 + backfill dels 25k existents) és
 al repo mirat, commits 7d8055fa/effca1b0.
+
+## 2026-08-17 — Windows: port — procedència de la data de captura a les pujades a Mirat
+
+Port del patch equivalent del Mac (commit 5e10204): `MiratService` enviava
+`photo.DateTaken` (el `LastWriteTime` de l'escaneig, un mtime) com a
+`data_original` sense declarar-ne la procedència.
+
+**Fix**:
+- `FileService.ExtractExifDate` — EXIF via Magick.NET amb `Ping` (només
+  metadades): `DateTimeOriginal` > `DateTimeDigitized` > TIFF `DateTime`,
+  hora local, guarda d'anys sans (1972–2100).
+- `FileService.ExtractVideoCreationDate` — MP4/MOV/M4V/3GP: lector propi de
+  l'àtom `moov/mvhd` (època QuickTime 1904, UTC), sense dependències noves.
+  Contenidors sense mvhd (AVI, MKV, WebM, MTS…) → null → fallback mtime.
+  Lògica validada contra ffprobe amb un MP4 real (coincidència exacta).
+- `MiratService`: data interna → `data_original` + font `'exif'`; si no,
+  `DateTaken` (mtime) + font `'fitxer'` → surt al filtre de manteniment
+  «Sense data» de Mirat.
+
+**Pendent**: compilar i provar a la màquina Windows (aquest Mac no té l'SDK).
