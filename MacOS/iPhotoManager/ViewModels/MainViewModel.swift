@@ -27,6 +27,7 @@ final class MainViewModel {
     private let fileService = FileService()
     private let thumbnailCache = ThumbnailCacheService()
     private let imageCache = ImageCacheService(maxSize: 20)
+    private let remuxService = DVAVIRemuxService()
     let deviceService = DeviceImportService()
     private let miratStore = MiratDestinationStore()
 
@@ -42,6 +43,8 @@ final class MainViewModel {
     private var loadingThumbIds = Set<String>()
     private var prefetchTask: Task<Void, Never>?
     private var viewerDownloadTask: Task<Void, Never>?
+    /// Re-encapsulat d'un AVI DV per poder-lo reproduir (vegeu `DVAVIRemuxService`).
+    private var viewerRemuxTask: Task<Void, Never>?
 
     // MARK: - General State
 
@@ -1070,6 +1073,8 @@ final class MainViewModel {
         prefetchTask?.cancel()
         viewerDownloadTask?.cancel()
         viewerDownloadTask = nil
+        viewerRemuxTask?.cancel()
+        viewerRemuxTask = nil
         isViewerOpen = false
         viewerImage = nil
         viewerCurrentItem = nil
@@ -1118,6 +1123,44 @@ final class MainViewModel {
         }
     }
 
+    /// Prepara un AVI local per reproduir-lo al visor.
+    ///
+    /// Els AVI de càmeres MiniDV porten vídeo DV, que AVFoundation no sap
+    /// demuxar: el reproductor accepta el fitxer però no ensenya cap frame. Es
+    /// re-encapsulen a `.mov` sense recodificar (còpia de disc, queda a la cache)
+    /// i es reprodueix el resultat. Els AVI amb qualsevol altre còdec es
+    /// reprodueixen directament, com sempre.
+    private func prepareAVIForPlayback(_ item: PhotoItem) async {
+        let path = item.fullPath
+        let needsRemux = await Task.detached(priority: .userInitiated) {
+            DVAVIRemuxService.requiresRemux(path: path)
+        }.value
+
+        guard !Task.isCancelled, viewerCurrentItem == item else { return }
+        guard needsRemux else {
+            viewerVideoURL = URL(fileURLWithPath: path)
+            return
+        }
+
+        statusMessage = "Preparant vídeo DV per reproduir…"
+        do {
+            let url = try await remuxService.playableURL(for: path) { [weak self] fraction in
+                Task { @MainActor in
+                    guard let self, self.viewerCurrentItem == item else { return }
+                    self.statusMessage = "Preparant vídeo DV per reproduir… \(Int(fraction * 100))%"
+                }
+            }
+            guard !Task.isCancelled, viewerCurrentItem == item else { return }
+            viewerVideoURL = url
+            updateStatusMessage()
+        } catch is CancellationError {
+            // L'usuari ha passat a una altra foto: no cal dir res
+        } catch {
+            guard viewerCurrentItem == item else { return }
+            statusMessage = "No s'ha pogut preparar el vídeo DV: \(error.localizedDescription)"
+        }
+    }
+
     private func loadViewerImage(for item: PhotoItem) {
         viewerCurrentItem = item
         item.isHighlighted = true
@@ -1125,6 +1168,8 @@ final class MainViewModel {
         // Cancel any previous device download task
         viewerDownloadTask?.cancel()
         viewerDownloadTask = nil
+        viewerRemuxTask?.cancel()
+        viewerRemuxTask = nil
 
         // Device items: show thumbnail first, then download (imatge → full-res;
         // vídeo → fitxer temporal per reproduir). No són fitxers locals, així que
@@ -1200,9 +1245,20 @@ final class MainViewModel {
         if item.isVideo {
             isViewingVideo = true
             viewerVideoRotation = item.videoRotation
-            viewerVideoURL = URL(fileURLWithPath: item.fullPath)
             viewerImage = item.thumbnail
             updateViewerInfo(for: item)
+
+            // Els AVI poden portar vídeo DV, que AVFoundation no sap demuxar: cal
+            // re-encapsular-los abans de reproduir-los. Mentre es prepara es veu
+            // la miniatura, perquè viewerVideoURL encara és nil.
+            if item.fullPath.lowercased().hasSuffix(".avi") {
+                viewerVideoURL = nil
+                viewerRemuxTask = Task { [weak self] in
+                    await self?.prepareAVIForPlayback(item)
+                }
+            } else {
+                viewerVideoURL = URL(fileURLWithPath: item.fullPath)
+            }
 
             // Llegir rotació en background per no bloquejar MainActor amb fitxers grans
             if item.videoRotation == 0 {

@@ -161,6 +161,8 @@ actor FileService {
     }
 
     /// Generates a thumbnail from a video file using AVAssetImageGenerator.
+    /// Si AVFoundation no sap descodificar el vídeo (cas típic: DV dins d'AVI de
+    /// càmeres MiniDV, que falla amb -11869), ho reintenta amb `DVAVIFrameExtractor`.
     nonisolated func generateVideoThumbnail(for path: String, maxSize: Int = 512) -> NSImage? {
         let url = URL(fileURLWithPath: path)
         let asset = AVURLAsset(url: url)
@@ -172,7 +174,7 @@ actor FileService {
             let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
             return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         } catch {
-            return nil
+            return DVAVIFrameExtractor.thumbnail(for: path, maxSize: maxSize)
         }
     }
 

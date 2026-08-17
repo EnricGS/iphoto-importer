@@ -1526,3 +1526,55 @@ Portat a la versió WPF el bloc de fixos de pujada a Mirat que ja eren a macOS (
 ### Pendent
 
 - Provar a Windows amb l'iPhone / vídeos grans reals: que un vídeo pugi per multipart (init → parts → complete) sense 502/503, i que les extensions `.mts/.m2ts/.ts/.3gp` agafin el camí presignat.
+
+## 2026-08-17 — Mac: miniatures de vídeos DV dins d'AVI (MiniDV) via VideoToolbox
+
+**Problema**: la carpeta `videos 1996` (65 fitxers `.avi` capturats de MiniDV) sortia a la graella amb 65 icones de càmera i cap miniatura.
+
+**Causa**: són DV25 PAL (fourcc `dvsd`, 720×576) dins d'un contenidor AVI. AVFoundation obre el contenidor i veu la pista de vídeo (`isReadable=true`, 1 pista), però `AVAssetImageGenerator.copyCGImage` falla amb `-11869 "Cannot Open"` (OSStatus `-12430`). No és que macOS no sàpiga DV: el mateix stream **re-encapsulat a `.mov` sense recodificar** es descodifica sense problemes. El que falla és el demuxer d'AVI d'AVFoundation amb DV, no el còdec.
+
+**Fix** (`MacOS/iPhotoManager/Services/DVAVIFrameExtractor.swift`, nou): saltar el demuxer d'AVFoundation. Es llegeix el primer chunk de vídeo (`##dc`/`##db`) del LIST `movi` del RIFF amb `FileHandle` (només capçaleres de 8 bytes, sense carregar el fitxer), es dedueix la variant per la mida exacta del frame (144.000 = PAL `dvcp`, 120.000 = NTSC `dvc `), i es descodifica amb `VTDecompressionSession` → `CGImage`. Es corregeix la relació d'aspecte (píxel no quadrat: 720×576 → 768×576 en 4:3, 1024×576 en 16:9 llegint el flag del pack VAUX `0x61` del frame DV).
+
+`FileService.generateVideoThumbnail` crida l'extractor al `catch` d'AVFoundation, així que el fix arriba als dos consumidors alhora: la graella (via `ThumbnailCacheService`) i la pujada a Mirat (`MiratService.generateFromVideo`, que reusa la mateixa funció per al thumb 200px i el preview 2048px).
+
+**Verificat**: 65/65 fitxers de `videos 1996` generen frame correcte a 768×576; a l'app, la graella surt plena de miniatures reals.
+
+### Limitació coneguda (no tocada)
+
+La **reproducció** d'aquests AVI dins l'app segueix sense imatge: `AVPlayer` els accepta (`readyToPlay`, el temps avança i l'àudio PCM sona) però `AVPlayerItemVideoOutput` no entrega cap frame — mateixa causa. Arreglar-ho demanaria re-encapsular DV+PCM a `.mov` (sense recodificar) en un temporal abans de reproduir.
+
+## 2026-08-17 — Mac: reproducció dels AVI DV al visor (remux .mov sense recodificar)
+
+Segona part del fix DV: les miniatures ja sortien però el visor no reproduïa
+(AVPlayer accepta l'AVI, l'àudio sona, però no entrega cap frame de vídeo).
+
+**Fix**: re-encapsular DV+PCM a `.mov` sense recodificar quan s'obre un AVI DV
+al visor. Còpia a velocitat de disc (~300-2600 MB/s mesurat), cache a
+`~/Library/Caches/com.iphotomanager.remux` (límit 20 GB, poda LRU per data
+d'accés), clau per path+mida+mtime.
+
+**Fitxers nous** (`MacOS/iPhotoManager/Services/`):
+- `AVIParser.swift` — lector RIFF/AVI: streams (strh/strf) + índex de chunks
+  (`##dc`/`##db`/`##wb`), suporta OpenDML (RIFF AVIX) i `LIST rec `. Només
+  llegeix capçaleres de 8 bytes; les dades es llegeixen per offset.
+- `DVVideoFormat.swift` — variant DV per mida de frame (144000=PAL, 120000=NTSC),
+  aspecte 4:3/16:9 llegint el pack VAUX 0x61, PAR a la CMFormatDescription.
+- `DVAudioExtractor.swift` — àudio DV **tipus 1** (dins dels frames): deshuffle
+  IEC 61834/SMPTE 314M, 16 bits, taules 525/625. Validat bit-exacte contra
+  ffmpeg en 12 fitxers (els altres 53 duen stream PCM separat i no el necessiten).
+- `CMSampleBufferFactory.swift` — CMSampleBuffer de vídeo comprimit i PCM.
+- `DVAVIRemuxService.swift` — actor: AVAssetWriter passthrough (sourceFormatHint,
+  sense outputSettings) entrellaçant vídeo i àudio per PTS **entre les pistes que
+  accepten dades** (triar només per temps encalla l'escriptor); àudio de stream
+  `##wb` (tipus 2) o extret dels frames DV (tipus 1); escriu a `.partial` i mou.
+- `DVAVIFrameExtractor.swift` — refet sobre aquestes peces (abans parser propi).
+
+**Integració** (`MainViewModel`): en obrir un `.avi` local al visor,
+`prepareAVIForPlayback` comprova `DVAVIRemuxService.requiresRemux` (només
+capçaleres) → si és DV, remux amb missatge de progrés a la barra d'estat i
+reproducció del `.mov`; si no, reproducció directa com sempre. Cancel·lació
+en canviar de foto o tancar el visor (`viewerRemuxTask`).
+
+**Verificat**: 65/65 AVI del `videos 1996` remuxats OK; àudio i vídeo
+bit-exactes vs ffmpeg (cmp dels streams extrets); AVPlayerItemVideoOutput
+entrega frames (abans 0); reproducció comprovada dins l'app.
