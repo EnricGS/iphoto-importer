@@ -122,8 +122,18 @@ final class MiratService {
         ]
         if width > 0 { meta["amplada"] = width }
         if height > 0 { meta["alcada"] = height }
-        if let date = photo.dateTaken {
+        // Data de captura: preferim la data INTERNA del fitxer (EXIF / àtoms del
+        // contenidor de vídeo) i declarem la procedència a Mirat
+        // (data_original_font): 'exif' = fiable; 'fitxer' = estimada (el
+        // dateTaken de l'escaneig és el mtime) → el filtre de manteniment
+        // «Sense data» de Mirat la mostra per corregir-la a mà. Els AVI (DV)
+        // no es poden obrir amb AVFoundation: cauen al fallback 'fitxer'.
+        if let internalDate = await Self.internalCaptureDate(path: photo.fullPath, isVideo: photo.isVideo) {
+            meta["data_original"] = Self.iso8601Formatter.string(from: internalDate)
+            meta["data_original_font"] = "exif"
+        } else if let date = photo.dateTaken {
             meta["data_original"] = Self.iso8601Formatter.string(from: date)
+            meta["data_original_font"] = "fitxer"
         }
         if let pujatPer = destination.pujatPer { meta["pujat_per"] = pujatPer }
 
@@ -591,6 +601,55 @@ final class MiratService {
         CGImageDestinationAddImage(dest, cgImage, props as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return data as Data
+    }
+
+    // MARK: - Data de captura interna
+
+    /// Format de data EXIF ("2004:07:15 10:30:00"), interpretat en hora local
+    /// (les dates EXIF no duen fus; és el mateix criteri que el web de Mirat).
+    private static let exifDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        return f
+    }()
+
+    /// Descarta dates de farciment dels contenidors (època QuickTime 1904,
+    /// Unix 1970) i valors corruptes.
+    private nonisolated static func isSaneCaptureDate(_ date: Date) -> Bool {
+        let year = Calendar.current.component(.year, from: date)
+        return year > 1971 && year <= 2100
+    }
+
+    /// Data de captura llegida del CONTINGUT del fitxer, o nil si no n'hi ha.
+    /// Imatges: EXIF DateTimeOriginal > DateTimeDigitized > TIFF DateTime
+    /// (mateix ordre de preferència que el web i el backfill de Mirat).
+    /// Vídeos: metadada creationDate del contenidor via AVFoundation.
+    private static func internalCaptureDate(path: String, isVideo: Bool) async -> Date? {
+        if isVideo {
+            let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+            guard let item = try? await asset.load(.creationDate),
+                  let date = try? await item.load(.dateValue),
+                  isSaneCaptureDate(date) else { return nil }
+            return date
+        }
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) as? [String: Any]
+        else { return nil }
+        let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        let tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
+        let candidates = [
+            exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String,
+            exif?[kCGImagePropertyExifDateTimeDigitized as String] as? String,
+            tiff?[kCGImagePropertyTIFFDateTime as String] as? String,
+        ]
+        for case let text? in candidates {
+            if let date = exifDateFormatter.date(from: text), isSaneCaptureDate(date) {
+                return date
+            }
+        }
+        return nil
     }
 
     // MARK: - String/MIME helpers

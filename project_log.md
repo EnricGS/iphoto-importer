@@ -1578,3 +1578,25 @@ en canviar de foto o tancar el visor (`viewerRemuxTask`).
 **Verificat**: 65/65 AVI del `videos 1996` remuxats OK; àudio i vídeo
 bit-exactes vs ffmpeg (cmp dels streams extrets); AVPlayerItemVideoOutput
 entrega frames (abans 0); reproducció comprovada dins l'app.
+
+## 2026-08-17 — Mac: procedència de la data de captura a les pujades a Mirat
+
+**Problema**: `uploadPhoto` enviava `photo.dateTaken` com a `data_original`, i
+el `dateTaken` de l'escaneig local és el **mtime** del fitxer — Mirat rebia
+dates estimades indistingibles de les reals (el seu filtre de manteniment
+«Sense data» no trobava res).
+
+**Fix** (`MiratService.swift`): en pujar, es llegeix la data INTERNA del fitxer
+i es declara la procedència amb el camp nou `data_original_font` de l'API:
+- Imatges: EXIF `DateTimeOriginal` > `DateTimeDigitized` > TIFF `DateTime`
+  via CGImageSource (mateix ordre que el web i el backfill de Mirat), hora
+  local, amb guarda d'anys sans (1972–2100).
+- Vídeos: `creationDate` del contenidor via AVFoundation (async load).
+- Si hi ha data interna → `data_original` = aquesta + font `'exif'` (millor
+  que abans: corregeix mtimes erronis en el moment de pujar).
+- Si no n'hi ha (p. ex. AVI/DV, que AVFoundation no obre) → `dateTaken`
+  (mtime) + font `'fitxer'` → surt al filtre de manteniment de Mirat.
+
+**Verificat**: build net; extracció EXIF provada amb JPEG real (CEST→UTC
+correcte). El costat Mirat (migració 054 + backfill dels 25k existents) és
+al repo mirat, commits 7d8055fa/effca1b0.
